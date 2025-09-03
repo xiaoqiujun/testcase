@@ -13,18 +13,16 @@ jobs:
     runs-on: ${{ matrix.platform }}
 
     steps:
-      # 1️⃣ 拉取代码
+      # 1️⃣ Checkout 代码
       - uses: actions/checkout@v4
 
-      # 2️⃣ 安装 Node & pnpm
-      - name: Setup Node
+      # 2️⃣ Setup Node.js 并启用 pnpm
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: 'pnpm'
-
-      - name: Install pnpm
-        run: npm install -g pnpm
+          check-latest: true
 
       # 3️⃣ 安装依赖
       - run: pnpm install
