@@ -1,0 +1,20 @@
+[package]
+name = "testcase"
+version = "0.1.0"
+description = "测试用例管理工具"
+authors = ["xiaoqiujun <kdevelop98@gmail.com>"]
+edition = "2021"
+
+[lib]
+name = "testcase_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.4.1", features = [] }
+
+[dependencies]
+tauri = { version = "2.4.1", features = ["macos-private-api"] }
+tauri-plugin-opener = "2.0.1"
+serde = { version = "1.0.188", features = ["derive"] }
+serde_json = "1.0.102"
+tauri-plugin-updater = "2.9.0"
