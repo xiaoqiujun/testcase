@@ -26,22 +26,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # 2. 多平台构建
+  # 2. 多平台构建（仅 Windows 和 macOS）
   build:
     needs: create-release
     strategy:
       matrix:
         include:
-          # Linux
-          - os: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            arch: x86_64
-          - os: ubuntu-22.04
-            target: aarch64-unknown-linux-gnu
-            arch: aarch64
-          - os: ubuntu-22.04
-            target: armv7-unknown-linux-gnueabihf
-            arch: armv7
           # macOS
           - os: macos-latest
             target: x86_64-apple-darwin
@@ -99,7 +89,7 @@ jobs:
       - name: Find artifact
         id: artifact
         run: |
-          FILE=$(find src-tauri/target/release/bundle -type f \( -name "*.exe" -o -name "*.dmg" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.msi" \) | head -n 1)
+          FILE=$(find src-tauri/target/release/bundle -type f \( -name "*.exe" -o -name "*.dmg" \) | head -n 1)
           echo "file=$FILE" >> $GITHUB_OUTPUT
           echo "ext=${FILE##*.}" >> $GITHUB_OUTPUT
       - name: Upload artifact to Release
@@ -138,11 +128,6 @@ jobs:
           ### macOS
           - [x86_64]($DOWNLOAD_URL/$VERSION-macos-latest-x86_64.dmg)
           - [aarch64]($DOWNLOAD_URL/$VERSION-macos-latest-aarch64.dmg)
-
-          ### Linux
-          - [x86_64 AppImage]($DOWNLOAD_URL/$VERSION-ubuntu-22.04-x86_64.AppImage)
-          - [aarch64 AppImage]($DOWNLOAD_URL/$VERSION-ubuntu-22.04-aarch64.AppImage)
-          - [armv7 AppImage]($DOWNLOAD_URL/$VERSION-ubuntu-22.04-armv7.AppImage)
           EOF
       - name: Upload release.txt
         uses: actions/upload-release-asset@v1
