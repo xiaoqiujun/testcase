@@ -73,8 +73,9 @@ function App() {
 			<div className="flex p-6 max-w-5xl mx-auto">
 				<Tooltip delayDuration={200}>
 					<TooltipTrigger asChild>
-						<button onClick={onClick} aria-label="项目仓库">
+						<button onClick={onClick} aria-label="项目仓库" className="flex items-center">
 							<IconBrandGithub className="w-6 h-6" stroke={2} />
+							项目仓库（一款轻量级、本地化、跨平台的 测试用例管理工具）
 						</button>
 					</TooltipTrigger>
 					<TooltipContent>

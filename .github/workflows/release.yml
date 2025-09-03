@@ -38,10 +38,10 @@ jobs:
       # 7️⃣ 构建 Tauri 应用
       - run: npm run tauri build
 
-      # 8️⃣ 签名
-      - name: Sign artifacts
+      # 8️⃣ 可选签名
+      - name: Sign artifacts (optional)
+        if: env.TAURI_PRIVATE_KEY && env.TAURI_KEY_PASSWORD
         run: |
-          echo "Signing build artifacts..."
           for file in $(find src-tauri/target/release/bundle -type f \( -name "*.msi" -o -name "*.dmg" \)); do
             echo "Signing $file"
             npm run tauri signer sign \
@@ -82,9 +82,14 @@ jobs:
           VERSION=${GITHUB_REF##*/}
           PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-          SIG_MAC=$(cat testcase_${VERSION}_x64.dmg.sig | base64 -w 0)
-          SIG_MAC_ARM=$(cat testcase_${VERSION}_aarch64.dmg.sig | base64 -w 0)
-          SIG_WIN=$(cat testcase_${VERSION}_x64_en-US.msi.sig | base64 -w 0)
+          SIG_MAC=""
+          SIG_MAC_ARM=""
+          SIG_WIN=""
+
+          # 如果有签名文件，可以读取 base64
+          [ -f "testcase_${VERSION}_x64.dmg.sig" ] && SIG_MAC=$(base64 -w 0 "testcase_${VERSION}_x64.dmg.sig")
+          [ -f "testcase_${VERSION}_aarch64.dmg.sig" ] && SIG_MAC_ARM=$(base64 -w 0 "testcase_${VERSION}_aarch64.dmg.sig")
+          [ -f "testcase_${VERSION}_x64_en-US.msi.sig" ] && SIG_WIN=$(base64 -w 0 "testcase_${VERSION}_x64_en-US.msi.sig")
 
           cat > latest.json <<EOF
           {
