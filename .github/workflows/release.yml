@@ -1,4 +1,4 @@
-name: Release Build
+name: Tauri Multi-Platform Release
 
 on:
   workflow_dispatch:
@@ -11,14 +11,13 @@ on:
         required: true
 
 jobs:
-  # 1. 创建 GitHub Release
+  # 1. 创建 Release
   create-release:
     runs-on: ubuntu-latest
     outputs:
       upload_url: ${{ steps.create.outputs.upload_url }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Create GitHub Release
         id: create
@@ -34,27 +33,47 @@ jobs:
 
   # 2. 多平台构建
   build:
+    needs: create-release
     strategy:
       matrix:
         include:
-          - os: ubuntu-latest
+          # Linux
+          - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             arch: x86_64
+          - os: ubuntu-22.04
+            target: aarch64-unknown-linux-gnu
+            arch: aarch64
+          - os: ubuntu-22.04
+            target: armv7-unknown-linux-gnueabihf
+            arch: armv7
+          # macOS
           - os: macos-latest
             target: x86_64-apple-darwin
             arch: x86_64
           - os: macos-latest
             target: aarch64-apple-darwin
             arch: aarch64
+          # Windows
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             arch: x86_64
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
+            arch: arm64
+          # Windows WebView2 内置版
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            arch: x86_64
+            webview2: true
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
+            arch: arm64
+            webview2: true
     runs-on: ${{ matrix.os }}
-    needs: create-release
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -73,6 +92,18 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Setup Windows WebView2
+        if: ${{ matrix.webview2 == true && runner.os == 'Windows' }}
+        run: |
+          powershell -Command "
+          $arch = '${{ matrix.arch }}';
+          $url = \"https://github.com/westinyang/WebView2RuntimeArchive/releases/download/109.0.1518.78/Microsoft.WebView2.FixedVersionRuntime.109.0.1518.78.$arch.cab\";
+          Invoke-WebRequest -Uri $url -OutFile Microsoft.WebView2.FixedVersionRuntime.109.0.1518.78.$arch.cab;
+          Expand .\Microsoft.WebView2.FixedVersionRuntime.109.0.1518.78.$arch.cab -F:* ./src-tauri;
+          Remove-Item .\src-tauri\tauri.windows.conf.json;
+          Rename-Item .\src-tauri\webview2.$arch.json tauri.windows.conf.json;
+          "
 
       - name: Build Tauri app
         run: pnpm tauri build
@@ -93,3 +124,51 @@ jobs:
           asset_path: ${{ steps.artifact.outputs.file }}
           asset_name: ${{ github.event.inputs.version }}-${{ matrix.os }}-${{ matrix.arch }}.${{ steps.artifact.outputs.ext }}
           asset_content_type: application/octet-stream
+
+  # 3. 生成 release.txt 并上传
+  generate-release-file:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate release.txt
+        run: |
+          VERSION=${{ github.event.inputs.version }}
+          CHANGELOG="${{ github.event.inputs.changelog }}"
+          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/v$VERSION"
+          cat > release.txt <<EOF
+          Release v$VERSION
+          ==================
+
+          Changelog:
+          $CHANGELOG
+
+          Download Links:
+
+          ### Windows
+          - [x86_64]($DOWNLOAD_URL/v$VERSION-windows-latest-x86_64.exe)
+          - [ARM64]($DOWNLOAD_URL/v$VERSION-windows-latest-arm64.exe)
+          - [x86_64 WebView2]($DOWNLOAD_URL/v$VERSION-windows-latest-x86_64.exe)
+          - [ARM64 WebView2]($DOWNLOAD_URL/v$VERSION-windows-latest-arm64.exe)
+
+          ### macOS
+          - [x86_64]($DOWNLOAD_URL/v$VERSION-macos-latest-x86_64.dmg)
+          - [aarch64]($DOWNLOAD_URL/v$VERSION-macos-latest-aarch64.dmg)
+
+          ### Linux
+          - [x86_64 AppImage]($DOWNLOAD_URL/v$VERSION-ubuntu-22.04-x86_64.AppImage)
+          - [aarch64 AppImage]($DOWNLOAD_URL/v$VERSION-ubuntu-22.04-aarch64.AppImage)
+          - [armv7 AppImage]($DOWNLOAD_URL/v$VERSION-ubuntu-22.04-armv7.AppImage)
+          EOF
+
+      - name: Upload release.txt
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: release.txt
+          asset_name: release.txt
+          asset_content_type: text/plain
