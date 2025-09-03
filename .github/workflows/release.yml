@@ -9,7 +9,7 @@ jobs:
   build:
     strategy:
       matrix:
-        platform: [macos-latest, windows-latest, ubuntu-latest]
+        platform: [macos-latest, windows-latest]
     runs-on: ${{ matrix.platform }}
 
     steps:
@@ -101,10 +101,6 @@ jobs:
               "windows-x86_64": {
                 "signature": "${SIG_WIN}",
                 "url": "https://github.com/${{ github.repository }}/releases/download/${VERSION}/testcase_${VERSION}_x64_en-US.msi"
-              },
-              "linux-x86_64": {
-                "signature": "${SIG_LINUX}",
-                "url": "https://github.com/${{ github.repository }}/releases/download/${VERSION}/testcase_${VERSION}_amd64.AppImage"
               }
             }
           }
