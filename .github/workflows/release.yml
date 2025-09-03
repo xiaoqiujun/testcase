@@ -26,7 +26,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # 2. 多平台构建（仅 Windows 和 macOS）
+  # 2. 多平台构建（仅 Windows 和 macOS，不含 WebView2）
   build:
     needs: create-release
     strategy:
@@ -46,15 +46,6 @@ jobs:
           - os: windows-latest
             target: aarch64-pc-windows-msvc
             arch: arm64
-          # Windows WebView2 内置版
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            arch: x86_64
-            webview2: true
-          - os: windows-latest
-            target: aarch64-pc-windows-msvc
-            arch: arm64
-            webview2: true
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -73,17 +64,6 @@ jobs:
           version: 9
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Setup Windows WebView2
-        if: ${{ matrix.webview2 == true && runner.os == 'Windows' }}
-        run: |
-          powershell -Command "
-          $arch = '${{ matrix.arch }}';
-          $url = \"https://github.com/westinyang/WebView2RuntimeArchive/releases/download/109.0.1518.78/Microsoft.WebView2.FixedVersionRuntime.109.0.1518.78.$arch.cab\";
-          Invoke-WebRequest -Uri $url -OutFile Microsoft.WebView2.FixedVersionRuntime.109.0.1518.78.$arch.cab;
-          Expand .\Microsoft.WebView2.FixedVersionRuntime.109.0.1518.78.$arch.cab -F:* ./src-tauri;
-          Remove-Item .\src-tauri\tauri.windows.conf.json;
-          Rename-Item .\src-tauri\webview2.$arch.json tauri.windows.conf.json;
-          "
       - name: Build Tauri app
         run: pnpm tauri build
       - name: Find artifact
@@ -122,8 +102,6 @@ jobs:
           ### Windows
           - [x86_64]($DOWNLOAD_URL/$VERSION-windows-latest-x86_64.exe)
           - [ARM64]($DOWNLOAD_URL/$VERSION-windows-latest-arm64.exe)
-          - [x86_64 WebView2]($DOWNLOAD_URL/$VERSION-windows-latest-x86_64.exe)
-          - [ARM64 WebView2]($DOWNLOAD_URL/$VERSION-windows-latest-arm64.exe)
 
           ### macOS
           - [x86_64]($DOWNLOAD_URL/$VERSION-macos-latest-x86_64.dmg)
