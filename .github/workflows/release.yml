@@ -16,34 +16,34 @@ jobs:
       # 1️⃣ Checkout 代码
       - uses: actions/checkout@v4
 
-      # 2️⃣ Setup Node.js 并启用 pnpm
+      # 2️⃣ Setup Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'pnpm'
+          cache: 'npm'
           check-latest: true
 
       # 3️⃣ 安装依赖
-      - run: pnpm install
+      - run: npm install
 
       # 4️⃣ 安装 Rust
       - uses: dtolnay/rust-toolchain@stable
 
       # 5️⃣ 安装 Tauri CLI
-      - run: pnpm add -g @tauri-apps/cli
+      - run: npm install -g @tauri-apps/cli
 
       # 6️⃣ 构建前端
-      - run: pnpm build
+      - run: npm run build
 
       # 7️⃣ 构建 Tauri 应用
-      - run: pnpm tauri build
+      - run: npm run tauri build
 
       # 8️⃣ 签名
       - name: Sign artifacts
         run: |
           for file in $(find src-tauri/target/release/bundle -type f \( -name "*.msi" -o -name "*.dmg" -o -name "*.AppImage" \)); do
-            pnpm tauri signer sign \
+            npm run tauri signer sign \
               --private-key "$TAURI_PRIVATE_KEY" \
               --password "$TAURI_KEY_PASSWORD" \
               "$file"
@@ -102,6 +102,10 @@ jobs:
               "windows-x86_64": {
                 "signature": "${SIG_WIN}",
                 "url": "https://github.com/${{ github.repository }}/releases/download/${VERSION}/testcase_${VERSION}_x64_en-US.msi"
+              },
+              "linux-x86_64": {
+                "signature": "${SIG_LINUX}",
+                "url": "https://github.com/${{ github.repository }}/releases/download/${VERSION}/testcase_${VERSION}_amd64.AppImage"
               }
             }
           }
