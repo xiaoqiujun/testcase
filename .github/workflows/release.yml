@@ -1,17 +1,13 @@
-name: Tauri Multi-Platform Release
+name: Release Build
 
 on:
-  workflow_dispatch:
-    inputs:
-      version:
-        required: true
-      changelog:
-        required: true
+  push:
+    tags:
+      - 'v*.*.*'   # 以 v 开头的语义化版本号触发
+  # 可保留 dev 分支的 push 触发构建（可选）
   push:
     branches:
       - dev
-    tags:
-      - 'v*.*.*'
 
 jobs:
   # 1. 创建 Release
@@ -26,9 +22,9 @@ jobs:
         id: create
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: v${{ github.event.inputs.version }}
-          name: "v${{ github.event.inputs.version }}"
-          body: ${{ github.event.inputs.changelog }}
+          tag_name: ${{ github.ref_name }}
+          name: "Release ${{ github.ref_name }}"
+          body: "Release ${{ github.ref_name }}"
           draft: false
           prerelease: false
         env:
@@ -77,25 +73,20 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 9
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-
       - name: Setup Windows WebView2
         if: ${{ matrix.webview2 == true && runner.os == 'Windows' }}
         run: |
@@ -107,17 +98,14 @@ jobs:
           Remove-Item .\src-tauri\tauri.windows.conf.json;
           Rename-Item .\src-tauri\webview2.$arch.json tauri.windows.conf.json;
           "
-
       - name: Build Tauri app
         run: pnpm tauri build
-
       - name: Find artifact
         id: artifact
         run: |
           FILE=$(find src-tauri/target/release/bundle -type f \( -name "*.exe" -o -name "*.dmg" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.msi" \) | head -n 1)
           echo "file=$FILE" >> $GITHUB_OUTPUT
           echo "ext=${FILE##*.}" >> $GITHUB_OUTPUT
-
       - name: Upload artifact to Release
         uses: actions/upload-release-asset@v1
         env:
@@ -125,7 +113,7 @@ jobs:
         with:
           upload_url: ${{ needs.create-release.outputs.upload_url }}
           asset_path: ${{ steps.artifact.outputs.file }}
-          asset_name: ${{ github.event.inputs.version }}-${{ matrix.os }}-${{ matrix.arch }}.${{ steps.artifact.outputs.ext }}
+          asset_name: ${{ github.ref_name }}-${{ matrix.os }}-${{ matrix.arch }}.${{ steps.artifact.outputs.ext }}
           asset_content_type: application/octet-stream
 
   # 3. 生成 release.txt 并上传
@@ -135,37 +123,31 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Generate release.txt
         run: |
-          VERSION=${{ github.event.inputs.version }}
-          CHANGELOG="${{ github.event.inputs.changelog }}"
-          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/v$VERSION"
+          VERSION=${{ github.ref_name }}
+          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/$VERSION"
           cat > release.txt <<EOF
-          Release v$VERSION
+          Release $VERSION
           ==================
-
-          Changelog:
-          $CHANGELOG
 
           Download Links:
 
           ### Windows
-          - [x86_64]($DOWNLOAD_URL/v$VERSION-windows-latest-x86_64.exe)
-          - [ARM64]($DOWNLOAD_URL/v$VERSION-windows-latest-arm64.exe)
-          - [x86_64 WebView2]($DOWNLOAD_URL/v$VERSION-windows-latest-x86_64.exe)
-          - [ARM64 WebView2]($DOWNLOAD_URL/v$VERSION-windows-latest-arm64.exe)
+          - [x86_64]($DOWNLOAD_URL/$VERSION-windows-latest-x86_64.exe)
+          - [ARM64]($DOWNLOAD_URL/$VERSION-windows-latest-arm64.exe)
+          - [x86_64 WebView2]($DOWNLOAD_URL/$VERSION-windows-latest-x86_64.exe)
+          - [ARM64 WebView2]($DOWNLOAD_URL/$VERSION-windows-latest-arm64.exe)
 
           ### macOS
-          - [x86_64]($DOWNLOAD_URL/v$VERSION-macos-latest-x86_64.dmg)
-          - [aarch64]($DOWNLOAD_URL/v$VERSION-macos-latest-aarch64.dmg)
+          - [x86_64]($DOWNLOAD_URL/$VERSION-macos-latest-x86_64.dmg)
+          - [aarch64]($DOWNLOAD_URL/$VERSION-macos-latest-aarch64.dmg)
 
           ### Linux
-          - [x86_64 AppImage]($DOWNLOAD_URL/v$VERSION-ubuntu-22.04-x86_64.AppImage)
-          - [aarch64 AppImage]($DOWNLOAD_URL/v$VERSION-ubuntu-22.04-aarch64.AppImage)
-          - [armv7 AppImage]($DOWNLOAD_URL/v$VERSION-ubuntu-22.04-armv7.AppImage)
+          - [x86_64 AppImage]($DOWNLOAD_URL/$VERSION-ubuntu-22.04-x86_64.AppImage)
+          - [aarch64 AppImage]($DOWNLOAD_URL/$VERSION-ubuntu-22.04-aarch64.AppImage)
+          - [armv7 AppImage]($DOWNLOAD_URL/$VERSION-ubuntu-22.04-armv7.AppImage)
           EOF
-
       - name: Upload release.txt
         uses: actions/upload-release-asset@v1
         env:
