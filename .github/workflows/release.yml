@@ -4,11 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version (e.g. 1.2.3)"
         required: true
       changelog:
-        description: "Changelog notes"
         required: true
+  push:
+    branches:
+      - dev
+    tags:
+      - 'v*.*.*'
 
 jobs:
   # 1. 创建 Release
