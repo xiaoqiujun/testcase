@@ -1,0 +1,106 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        platform: [macos-latest, windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm install
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - run: npm install -g @tauri-apps/cli
+
+      - run: npm run tauri build
+
+      - name: Sign artifacts
+        run: |
+          for file in $(find src-tauri/target/release/bundle -type f \( -name "*.msi" -o -name "*.dmg" -o -name "*.AppImage" \)); do
+            pnpm tauri signer sign \
+              --private-key "$TAURI_PRIVATE_KEY" \
+              --password "$TAURI_KEY_PASSWORD" \
+              "$file"
+          done
+        env:
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+
+      - name: Upload artifacts
+        uses: softprops/action-gh-release@v2
+        with:
+          files: src-tauri/target/release/bundle/**/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  create-latest-json:
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Release Assets
+        uses: robinraju/release-downloader@v1.9
+        with:
+          repository: ${{ github.repository }}
+          tag: ${{ github.ref_name }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fileName: "*"
+
+      - name: Create latest.json
+        run: |
+          VERSION=${GITHUB_REF##*/}
+          PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          SIG_MAC=$(cat testcase_${VERSION}_x64.dmg.sig | base64 -w 0)
+          SIG_MAC_ARM=$(cat testcase_${VERSION}_aarch64.dmg.sig | base64 -w 0)
+          SIG_WIN=$(cat testcase_${VERSION}_x64_en-US.msi.sig | base64 -w 0)
+          SIG_LINUX=$(cat testcase_${VERSION}_amd64.AppImage.sig | base64 -w 0)
+
+          cat > latest.json <<EOF
+          {
+            "version": "${VERSION}",
+            "notes": "Release ${VERSION}",
+            "pub_date": "${PUB_DATE}",
+            "platforms": {
+              "darwin-x86_64": {
+                "signature": "${SIG_MAC}",
+                "url": "https://github.com/${{ github.repository }}/releases/download/${VERSION}/testcase_${VERSION}_x64.dmg"
+              },
+              "darwin-aarch64": {
+                "signature": "${SIG_MAC_ARM}",
+                "url": "https://github.com/${{ github.repository }}/releases/download/${VERSION}/testcase_${VERSION}_aarch64.dmg"
+              },
+              "windows-x86_64": {
+                "signature": "${SIG_WIN}",
+                "url": "https://github.com/${{ github.repository }}/releases/download/${VERSION}/testcase_${VERSION}_x64_en-US.msi"
+              },
+              "linux-x86_64": {
+                "signature": "${SIG_LINUX}",
+                "url": "https://github.com/${{ github.repository }}/releases/download/${VERSION}/testcase_${VERSION}_amd64.AppImage"
+              }
+            }
+          }
+          EOF
+
+      - name: Upload latest.json
+        uses: softprops/action-gh-release@v2
+        with:
+          files: latest.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
