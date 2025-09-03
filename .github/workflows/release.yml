@@ -3,11 +3,7 @@ name: Release Build
 on:
   push:
     tags:
-      - 'v*.*.*'   # 以 v 开头的语义化版本号触发
-  # 可保留 dev 分支的 push 触发构建（可选）
-  push:
-    branches:
-      - dev
+      - 'v*.*.*'
 
 jobs:
   # 1. 创建 Release
