@@ -41,21 +41,24 @@ jobs:
       # 8️⃣ 签名
       - name: Sign artifacts
         run: |
-          for file in $(find src-tauri/target/release/bundle -type f \( -name "*.msi" -o -name "*.dmg" -o -name "*.AppImage" \)); do
+          echo "Signing build artifacts..."
+          for file in $(find src-tauri/target/release/bundle -type f \( -name "*.msi" -o -name "*.dmg" \)); do
+            echo "Signing $file"
             npm run tauri signer sign \
               --private-key "$TAURI_PRIVATE_KEY" \
               --password "$TAURI_KEY_PASSWORD" \
               "$file"
           done
+        shell: bash
         env:
           TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
           TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
 
       # 9️⃣ 上传 Release 文件
-      - name: Upload artifacts
+      - name: Upload artifacts to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: src-tauri/target/release/bundle/**/*
+          files: src-tauri/target/release/bundle/**/*.{msi,dmg}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -82,7 +85,6 @@ jobs:
           SIG_MAC=$(cat testcase_${VERSION}_x64.dmg.sig | base64 -w 0)
           SIG_MAC_ARM=$(cat testcase_${VERSION}_aarch64.dmg.sig | base64 -w 0)
           SIG_WIN=$(cat testcase_${VERSION}_x64_en-US.msi.sig | base64 -w 0)
-          SIG_LINUX=$(cat testcase_${VERSION}_amd64.AppImage.sig | base64 -w 0)
 
           cat > latest.json <<EOF
           {
