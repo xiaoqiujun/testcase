@@ -20,9 +20,10 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           name: "Release ${{ github.ref_name }}"
-          body: "Release ${{ github.ref_name }}"
+          body_path: release.txt
           draft: false
           prerelease: false
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
