@@ -6,47 +6,60 @@ on:
       - 'v*.*.*'
 
 jobs:
-  # 1. 创建 Release
+  # 1. 创建 Release（保留原顺序，先用固定描述占位）
   create-release:
     runs-on: ubuntu-latest
     outputs:
       upload_url: ${{ steps.create.outputs.upload_url }}
+      release_id: ${{ steps.create.outputs.id }}  # 新增：输出 Release ID 用于后续更新描述
     steps:
       - uses: actions/checkout@v4
 
       - name: Create GitHub Release
         id: create
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2  # 升级到 v2 以获取 release_id 输出
         with:
           tag_name: ${{ github.ref_name }}
           name: "Release ${{ github.ref_name }}"
-          body_path: release.txt
+          body: "正在生成发布说明... 请稍候刷新查看。"  # 临时占位描述
           draft: false
           prerelease: false
-          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # 2. 多平台构建（仅 Windows 和 macOS，不含 WebView2）
+  # 2. 多平台构建（修复变量缺失和产物查找）
   build:
     needs: create-release
     strategy:
       matrix:
+        # 修复：为每个平台添加缺失的 bundle_dir、ext、content_type
         include:
           # macOS
           - os: macos-latest
             target: x86_64-apple-darwin
             arch: x86_64
+            bundle_dir: dmg  # Tauri 打包的 dmg 存放目录
+            ext: dmg         # 文件后缀
+            content_type: application/x-apple-diskimage  # MIME 类型
           - os: macos-latest
             target: aarch64-apple-darwin
             arch: aarch64
+            bundle_dir: dmg
+            ext: dmg
+            content_type: application/x-apple-diskimage
           # Windows
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             arch: x86_64
+            bundle_dir: msi  # Tauri 打包的 msi 存放目录
+            ext: msi         # 文件后缀
+            content_type: application/x-msi  # MIME 类型
           - os: windows-latest
             target: aarch64-pc-windows-msvc
             arch: arm64
+            bundle_dir: msi
+            ext: msi
+            content_type: application/x-msi
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -69,19 +82,25 @@ jobs:
       - name: Build Tauri app
         run: pnpm tauri build --target ${{ matrix.target }}
         env:
-          # 确保 Tauri 构建时使用正确的目标
           TAURI_TARGET: ${{ matrix.target }}
 
-      # 精确查找构建产物（避免找到无关文件）
+      # 修复：精确查找构建产物（使用 matrix 中定义的变量）
       - name: Locate build artifact
         id: find-artifact
         run: |
-          # Tauri 构建产物的默认路径：src-tauri/target/<target>/release/bundle/<bundle_dir>
-          ARTIFACT_PATH="src-tauri/target/${{ matrix.target }}/release/bundle/${{ matrix.bundle_dir }}"
-          # 找到第一个 .exe 或 .dmg 文件
-          FILE=$(find "$ARTIFACT_PATH" -type f -name "*.$(echo ${{ matrix.ext }} | tr '[:upper:]' '[:lower:]')" | head -n 1)
+          # 正确的产物路径：src-tauri/target/<target>/release/bundle/<bundle_dir>
+          ARTIFACT_DIR="src-tauri/target/${{ matrix.target }}/release/bundle/${{ matrix.bundle_dir }}"
+          # 查找对应后缀的文件（如 .msi 或 .dmg）
+          FILE=$(find "$ARTIFACT_DIR" -type f -name "*.$(echo ${{ matrix.ext }} | tr '[:upper:]' '[:lower:]')" | head -n 1)
+          
+          # 验证产物是否找到
+          if [ -z "$FILE" ]; then
+            echo "ERROR: No artifact found in $ARTIFACT_DIR"
+            exit 1
+          fi
+          
+          # 输出文件路径和资产名称
           echo "file_path=$FILE" >> $GITHUB_OUTPUT
-          # 生成资产名称（如 v0.1.1-macos-latest-x86_64.dmg）
           echo "asset_name=${{ github.ref_name }}-${{ matrix.os }}-${{ matrix.arch }}.${{ matrix.ext }}" >> $GITHUB_OUTPUT
         shell: bash
       # 验证产物是否存在（避免后续步骤失败）
@@ -114,7 +133,7 @@ jobs:
           # 删除临时私钥文件
           rm -f private-key.pem
         shell: bash
-       # 上传主程序包
+       # 上传主程序包（修复：使用 matrix 中的 content_type）
       - name: Upload main artifact
         uses: actions/upload-release-asset@v2
         env:
@@ -123,7 +142,7 @@ jobs:
           upload_url: ${{ needs.create-release.outputs.upload_url }}
           asset_path: ${{ steps.find-artifact.outputs.file_path }}
           asset_name: ${{ steps.find-artifact.outputs.asset_name }}
-          asset_content_type: ${{ matrix.content_type }}
+          asset_content_type: ${{ matrix.content_type }}  # 使用 matrix 定义的 MIME 类型
       # 上传签名文件
       - name: Upload signature file
         uses: actions/upload-release-asset@v2
@@ -135,7 +154,7 @@ jobs:
           asset_name: ${{ steps.find-artifact.outputs.asset_name }}.sig
           asset_content_type: application/octet-stream
 
-  # 3. 生成 release.txt 和 latest.json 并上传
+  # 3. 生成 release.txt 和 latest.json + 更新 Release 描述
   generate-release-files:
     needs: [create-release, build]
     runs-on: ubuntu-latest
@@ -143,13 +162,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Generate release files
+        id: generate
         run: |
           VERSION=${{ github.ref_name }}
           # 移除版本号中的v前缀
           CLEAN_VERSION=${VERSION#v}
-          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/$VERSION"
+          # 修复：统一下载路径变量（删除未定义的 VERSION_TAG）
+          DOWNLOAD_BASE_URL="https://github.com/${{ github.repository }}/releases/download/$VERSION"
           
-          # 生成 release.txt
+          # 生成 release.txt（修复：使用正确的变量 $VERSION 和 $DOWNLOAD_BASE_URL）
           cat > release.txt <<EOF
           Release $VERSION
           ==================
@@ -157,40 +178,52 @@ jobs:
           Download Links:
 
           ### Windows
-          - [x86_64]($DOWNLOAD_BASE_URL/$VERSION_TAG-windows-latest-x86_64.msi)
-          - [ARM64]($DOWNLOAD_BASE_URL/$VERSION_TAG-windows-latest-arm64.msi)
+          - [x86_64]($DOWNLOAD_BASE_URL/$VERSION-windows-latest-x86_64.msi)
+          - [ARM64]($DOWNLOAD_BASE_URL/$VERSION-windows-latest-arm64.msi)
           
           ### macOS
-          - [x86_64 (Intel)]($DOWNLOAD_BASE_URL/$VERSION_TAG-macos-latest-x86_64.dmg)
-          - [aarch64 (Apple Silicon)]($DOWNLOAD_BASE_URL/$VERSION_TAG-macos-latest-aarch64.dmg)
+          - [x86_64 (Intel)]($DOWNLOAD_BASE_URL/$VERSION-macos-latest-x86_64.dmg)
+          - [aarch64 (Apple Silicon)]($DOWNLOAD_BASE_URL/$VERSION-macos-latest-aarch64.dmg)
           EOF
           
-          # 生成 latest.json 用于更新检查
+          # 生成 latest.json（修复：删除未定义的 VERSION_TAG）
           cat > latest.json <<EOF
           {
             "version": "$CLEAN_VERSION",
-            "notes": "Release $VERSION_TAG",
+            "notes": "Release $VERSION",
             "pub_date": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
             "platforms": {
               "windows-x86_64": {
-                "url": "$DOWNLOAD_BASE_URL/$VERSION_TAG-windows-latest-x86_64.msi",
-                "signature": "$DOWNLOAD_BASE_URL/$VERSION_TAG-windows-latest-x86_64.msi.sig"
+                "url": "$DOWNLOAD_BASE_URL/$VERSION-windows-latest-x86_64.msi",
+                "signature": "$DOWNLOAD_BASE_URL/$VERSION-windows-latest-x86_64.msi.sig"
               },
               "windows-arm64": {
-                "url": "$DOWNLOAD_BASE_URL/$VERSION_TAG-windows-latest-arm64.msi",
-                "signature": "$DOWNLOAD_BASE_URL/$VERSION_TAG-windows-latest-arm64.msi.sig"
+                "url": "$DOWNLOAD_BASE_URL/$VERSION-windows-latest-arm64.msi",
+                "signature": "$DOWNLOAD_BASE_URL/$VERSION-windows-latest-arm64.msi.sig"
               },
               "darwin-x86_64": {
-                "url": "$DOWNLOAD_BASE_URL/$VERSION_TAG-macos-latest-x86_64.dmg",
-                "signature": "$DOWNLOAD_BASE_URL/$VERSION_TAG-macos-latest-x86_64.dmg.sig"
+                "url": "$DOWNLOAD_BASE_URL/$VERSION-macos-latest-x86_64.dmg",
+                "signature": "$DOWNLOAD_BASE_URL/$VERSION-macos-latest-x86_64.dmg.sig"
               },
               "darwin-aarch64": {
-                "url": "$DOWNLOAD_BASE_URL/$VERSION_TAG-macos-latest-aarch64.dmg",
-                "signature": "$DOWNLOAD_BASE_URL/$VERSION_TAG-macos-latest-aarch64.dmg.sig"
+                "url": "$DOWNLOAD_BASE_URL/$VERSION-macos-latest-aarch64.dmg",
+                "signature": "$DOWNLOAD_BASE_URL/$VERSION-macos-latest-aarch64.dmg.sig"
               }
             }
           }
           EOF
+      # 新增：更新 Release 描述（将 release.txt 内容填充进去）
+      - name: Update Release description with release.txt
+        run: |
+          # 处理 release.txt 中的换行符，确保符合 JSON 格式
+          RELEASE_NOTE=$(cat release.txt | jq -sR .)
+          
+          # 调用 GitHub API 更新 Release 描述
+          curl -X PATCH "https://api.github.com/repos/${{ github.repository }}/releases/${{ needs.create-release.outputs.release_id }}" \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"body\": $RELEASE_NOTE}"
+        shell: bash
       # 上传 release.txt
       - name: Upload release.txt
         uses: actions/upload-release-asset@v2
