@@ -83,17 +83,21 @@ jobs:
           asset_name: ${{ github.ref_name }}-${{ matrix.os }}-${{ matrix.arch }}.${{ steps.artifact.outputs.ext }}
           asset_content_type: application/octet-stream
 
-  # 3. 生成 release.txt 并上传
-  generate-release-file:
-    needs: build
+  # 3. 生成 release.txt 和 latest.json 并上传
+  generate-release-files:
+    needs: [create-release, build]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Generate release.txt
+      - name: Generate release files
         run: |
           VERSION=${{ github.ref_name }}
+          # 移除版本号中的v前缀
+          CLEAN_VERSION=${VERSION#v}
           DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/$VERSION"
+          
+          # 生成 release.txt
           cat > release.txt <<EOF
           Release $VERSION
           ==================
@@ -108,6 +112,21 @@ jobs:
           - [x86_64]($DOWNLOAD_URL/$VERSION-macos-latest-x86_64.dmg)
           - [aarch64]($DOWNLOAD_URL/$VERSION-macos-latest-aarch64.dmg)
           EOF
+          
+          # 生成 latest.json 用于更新检查
+          cat > latest.json <<EOF
+          {
+            "version": "$CLEAN_VERSION",
+            "releaseName": "Release $VERSION",
+            "releaseDate": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+            "downloads": {
+              "windows-x86_64": "$DOWNLOAD_URL/$VERSION-windows-latest-x86_64.exe",
+              "windows-arm64": "$DOWNLOAD_URL/$VERSION-windows-latest-arm64.exe",
+              "macos-x86_64": "$DOWNLOAD_URL/$VERSION-macos-latest-x86_64.dmg",
+              "macos-aarch64": "$DOWNLOAD_URL/$VERSION-macos-latest-aarch64.dmg"
+            }
+          }
+          EOF
       - name: Upload release.txt
         uses: actions/upload-release-asset@v1
         env:
@@ -117,3 +136,12 @@ jobs:
           asset_path: release.txt
           asset_name: release.txt
           asset_content_type: text/plain
+      - name: Upload latest.json
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: latest.json
+          asset_name: latest.json
+          asset_content_type: application/json

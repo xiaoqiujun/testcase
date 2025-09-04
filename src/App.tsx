@@ -1,5 +1,6 @@
 import { useEffect } from "react"
 import TestCasePage from "./TestCasePage"
+import TestCaseAdvancedPage from './TestCaseAdvancedPage'
 import { logger } from "./utils/logger"
 import { check } from "@tauri-apps/plugin-updater"
 import { relaunch } from "@tauri-apps/plugin-process"
@@ -83,7 +84,8 @@ function App() {
 					</TooltipContent>
 				</Tooltip>
 			</div>
-			<TestCasePage />
+			<TestCaseAdvancedPage />
+			{/* <TestCasePage /> */}
 		</div>
 	)
 }
