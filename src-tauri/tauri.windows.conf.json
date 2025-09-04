@@ -1,33 +1,40 @@
 {
-  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "identifier": "com.xiaoqiujun.testcase",
-  "bundle": {
-    "targets": ["nsis"],
-    "windows": {
-      "certificateThumbprint": null,
-      "digestAlgorithm": "sha256",
-      "timestampUrl": "",
-      "webviewInstallMode": {
-        "type": "embedBootstrapper",
-        "silent": true
-      },
-      "nsis": {
-        "displayLanguageSelector": true,
-        "installerIcon": "icons/icon.ico",
-        "languages": ["SimpChinese", "English"],
-        "installMode": "perMachine",
-        "template": "./packages/windows/installer.nsi"
-      }
-    }
-  },
-  "app": {
-    "windows": [],
-    "security": {
-      "capabilities": [
-        "desktop-capability",
-        "desktop-windows-capability",
-        "migrated"
-      ]
-    }
-  }
+	"$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+	"identifier": "com.xiaoqiujun.testcase",
+	"bundle": {
+		"targets": ["nsis"],
+		"windows": {
+			"certificateThumbprint": null,
+			"digestAlgorithm": "sha256",
+			"timestampUrl": "",
+			"webviewInstallMode": {
+				"type": "embedBootstrapper",
+				"silent": true
+			},
+			"nsis": {
+				"displayLanguageSelector": true,
+				"installerIcon": "icons/icon.ico",
+				"languages": ["SimpChinese", "English"],
+				"installMode": "perMachine",
+				"template": "./packages/windows/installer.nsi"
+			}
+		}
+	},
+	"app": {
+		"windows": [
+			{
+				"title": "测试用例管理工具",
+				"width": 1200,
+				"height": 800,
+				"minWidth": 1200,
+				"minHeight": 800,
+				"resizable": true,
+				"center": true,
+				"shadow": true
+			}
+		],
+		"security": {
+			"csp": null
+		}
+	}
 }
