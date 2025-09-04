@@ -61,60 +61,82 @@ classDef exception fill:#ffedd5,stroke:#f97316,color:#9a3412
 	return code
 }
 interface PreviewProps {
-  testCases: TestCase[]
+	testCases: TestCase[]
 }
 const TestCasePreview: React.FC<PreviewProps> = ({ testCases }) => {
-  return (
-    <div className="p-6 bg-gray-100 mt-3">
-      <header className="text-center mb-6">
-        <h1 className="text-3xl font-bold text-blue-600">测试用例预览</h1>
-      </header>
+	return (
+		<div className="p-6 bg-gray-100 mt-3">
+			<header className="text-center mb-6">
+				<h1 className="text-3xl font-bold text-blue-600">测试用例预览</h1>
+			</header>
 
-      <main className="max-w-4xl mx-auto space-y-6">
-        {testCases.map((c) => (
-          <div key={c.id} className="bg-white rounded-xl shadow-md p-6">
-            <h2 className="text-xl font-semibold text-blue-800">{c.id}: {c.title}</h2>
-            <p className="text-gray-700 italic mt-2">前置条件: {c.precondition || "无"}</p>
-            <ol className="list-decimal list-inside mt-4 space-y-2">
-              {c.steps.map((s, idx) => (
-                <li key={idx} className="flex flex-col gap-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-blue-700 font-bold">
-                       {s.action}<abbr title={s.action}>（S{idx+1}）</abbr>
-                    </span>
-                    <span className={
-                      s.expectedStatus === "成功" ? "text-green-700 bg-green-100 px-2 rounded" :
-                      s.expectedStatus === "失败" ? "text-red-700 bg-red-100 px-2 rounded" :
-                      "text-orange-700 bg-orange-100 px-2 rounded"
-                    }>
-                      {s.expectedStatus}
-                    </span>
-                    <span className="bg-gray-100 px-2 rounded text-gray-800">
-                      期望值: {s.expectedValue || "无"}
-                    </span>
-                  </div>
-                  {s.dependsOn !== undefined && (
-                    <div className="text-yellow-600 font-semibold ml-6">
-                      ↩ 回溯至: <abbr title={c.steps[s.dependsOn]?.action}>S{s.dependsOn+1}</abbr> {c.steps[s.dependsOn]?.action}
-                    </div>
-                  )}
-                  {s.branches && s.branches.length > 0 && (
-                    <ul className="ml-6 list-disc list-inside mt-1">
-                      {s.branches.map((b, bi) => (
-                        <li key={bi} className="text-purple-700">
-                          <abbr title={b.condition}>{b.condition}</abbr> → 下一步: <span className="text-blue-700 font-bold"><abbr title={c.steps[b.nextStep]?.action}>（S{b.nextStep+1}）</abbr> {c.steps[b.nextStep]?.action}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </li>
-              ))}
-            </ol>
-          </div>
-        ))}
-      </main>
-    </div>
-  )
+			<main className="max-w-4xl mx-auto space-y-6">
+				{testCases.map((c) => (
+					<div key={c.id} className="bg-white rounded-xl shadow-md p-6">
+						<h2 className="text-xl font-semibold text-blue-800">
+							{c.id}: {c.title}
+						</h2>
+						<p className="text-gray-700 italic mt-2">前置条件: {c.precondition || "无"}</p>
+						<ol className="list-decimal list-inside mt-4 space-y-2">
+							{c.steps.map((s, idx) => (
+								<li key={idx} className="flex flex-col gap-1">
+									<div className="flex items-center gap-2 flex-wrap">
+										<span className="text-blue-700 font-bold">
+											<span className="bg-gray-300 p-1 rounded mr-1">S{idx + 1}</span>
+											{s.action}
+											<abbr title={s.action}></abbr>
+										</span>
+										<span
+											className={
+												s.expectedStatus === "成功"
+													? "text-green-700 bg-green-100 px-2 rounded"
+													: s.expectedStatus === "失败"
+													? "text-red-700 bg-red-100 px-2 rounded"
+													: "text-orange-700 bg-orange-100 px-2 rounded"
+											}
+										>
+											{s.expectedStatus}
+										</span>
+										<span className="bg-gray-100 px-2 rounded text-gray-800">
+											期望值: {s.expectedValue || "无"}
+										</span>
+									</div>
+									{s.dependsOn !== undefined && (
+										<div className="text-yellow-600 font-semibold ml-6">
+											↩ 回溯至:{" "}
+											<abbr title={c.steps[s.dependsOn]?.action}>S{s.dependsOn + 1}</abbr>{" "}
+											{c.steps[s.dependsOn]?.action}
+										</div>
+									)}
+									{s.branches && s.branches.length > 0 && (
+										<ul className="ml-6 list-disc list-inside mt-1">
+											{s.branches.map((b, bi) => (
+												<li key={bi} className="text-purple-700 mb-2">
+													<abbr title={b.condition}>
+														<span className="bg-gray-300 p-1 rounded mr-1">
+															C{`${idx + 1}.${bi + 1}`}
+														</span>
+														{b.condition}
+													</abbr>{" "}
+													→ 下一步:{" "}
+													<span className="text-blue-700 font-bold">
+														{c.steps[b.nextStep]?.action}
+														<abbr title={c.steps[b.nextStep]?.action}>
+															（S{b.nextStep + 1}）
+														</abbr>{" "}
+													</span>
+												</li>
+											))}
+										</ul>
+									)}
+								</li>
+							))}
+						</ol>
+					</div>
+				))}
+			</main>
+		</div>
+	)
 }
 
 const MermaidChart = ({ code }: { code: string }) => {
@@ -291,81 +313,96 @@ export default function TestCaseAdvancedPage() {
 <!DOCTYPE html>
 <html lang="zh">
 <head>
-<meta charset="UTF-8">
-<title>测试用例导出</title>
-<style>
-body { font-family: "Segoe UI", Roboto, sans-serif; background: #f3f4f6; margin:0; }
-.case-card { background:#fff; padding:16px; margin:16px; border-radius:12px; box-shadow:0 2px 8px rgba(0,0,0,0.1); }
-.status-success { color:green; font-weight:bold; }
-.status-fail { color:red; font-weight:bold; }
-.status-exception { color:orange; font-weight:bold; }
-.action { color:#1e40af; font-weight:bold; }
-.condition { color:#b45309; font-style:italic; }
-.branch { color:#9333ea; }
-.backtrack { color:#d97706; font-weight:bold; }
-.arrow { margin: 0 4px; color:#d97706; font-weight:bold; }
-ol, ul { padding-left:20px; }
-</style>
+  <meta charset="UTF-8" />
+  <title>测试用例导出</title>
+  <!-- 引入 Tailwind CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body>
-<h1 style="text-align:center;">测试用例手册</h1>
-${cases
-	.map(
-		(c) => `
-<div class="case-card">
-<h2>${c.id}: ${c.title}</h2>
-<p>前置条件: ${c.precondition || "无"}</p>
-<ol>
-${c.steps
-	.map(
-		(s, idx) => `
-<li>
-操作: <span class="action">${s.action}（S${idx + 1}）</span> →
-状态: <span class="status-${
-			s.expectedStatus === "成功" ? "success" : s.expectedStatus === "失败" ? "fail" : "exception"
-		}">${s.expectedStatus}</span> →
-期望值: ${s.expectedValue || "无"}
-${
-	s.dependsOn !== undefined
-		? `<div class="backtrack">↩ 回溯至: <span class="action">${
-				c.steps[s.dependsOn]?.action || "未知操作"
-		  }</span></div>`
-		: ""
-}
-${
-	s.branches && s.branches.length > 0
-		? `<ul>
-       ${s.branches
-			.map(
-				(b, bi) =>
-					`<li class="branch">条件（b${bi + 1}）: <span class="condition">${
-						b.condition
-					}</span> <span class="arrow">→</span> 下一步: <span class="action">${
-						c.steps[b.nextStep]?.action + `（S${b.nextStep}）` || "未知操作"
-					}</span></li>`
-			)
-			.join("")}
-       </ul>`
-		: ""
-}
-</li>
-`
-	)
-	.join("")}
-</ol>
-</div>
-`
-	)
-	.join("")}
+<body class="p-6 bg-gray-100">
+  <header class="text-center mb-6">
+    <h1 class="text-3xl font-bold text-blue-600">测试用例预览</h1>
+  </header>
+
+  <main class="max-w-4xl mx-auto space-y-6">
+    ${cases
+		.map(
+			(c) => `
+      <div class="bg-white rounded-xl shadow-md p-6">
+        <h2 class="text-xl font-semibold text-blue-800">${c.id}: ${c.title}</h2>
+        <p class="text-gray-700 italic mt-2">前置条件: ${c.precondition || "无"}</p>
+        <ol class="list-decimal list-inside mt-4 space-y-2">
+          ${c.steps
+				.map(
+					(s, idx) => `
+            <li class="flex flex-col gap-1">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="text-blue-700 font-bold">
+                  <span class="bg-gray-300 p-1 rounded mr-1">S${idx + 1}</span>
+                  ${s.action}
+                </span>
+                <span class="${
+					s.expectedStatus === "成功"
+						? "text-green-700 bg-green-100 px-2 rounded"
+						: s.expectedStatus === "失败"
+						? "text-red-700 bg-red-100 px-2 rounded"
+						: "text-orange-700 bg-orange-100 px-2 rounded"
+				}">${s.expectedStatus}</span>
+                <span class="bg-gray-100 px-2 rounded text-gray-800">
+                  期望值: ${s.expectedValue || "无"}
+                </span>
+              </div>
+              ${
+					s.dependsOn !== undefined
+						? `<div class="text-yellow-600 font-semibold ml-6">
+                    ↩ 回溯至: S${s.dependsOn + 1} ${c.steps[s.dependsOn]?.action}
+                  </div>`
+						: ""
+				}
+              ${
+					s.branches && s.branches.length > 0
+						? `<ul class="ml-6 list-disc list-inside mt-1">
+                      ${s.branches
+							.map(
+								(b, bi) => `
+                          <li class="text-purple-700 mb-2">
+                            <span class="bg-gray-300 p-1 rounded mr-1">C${idx + 1}.${bi + 1}</span>
+                            ${b.condition} → 下一步:
+                            <span class="text-blue-700 font-bold">S${b.nextStep + 1} ${
+									c.steps[b.nextStep]?.action || ""
+								}</span>
+                          </li>`
+							)
+							.join("")}
+                    </ul>`
+						: ""
+				}
+            </li>`
+				)
+				.join("")}
+        </ol>
+      </div>`
+		)
+		.join("")}
+  </main>
 </body>
 </html>
 `
 		saveAs(new Blob([html], { type: "text/html" }), "testcases.html")
 	}
 
+	const importDemo = () => {
+		const cases:TestCase[] = []
+		setCases(cases)
+	}
+
 	return (
 		<div className="p-6 max-w-5xl mx-auto">
-			<h1 className="text-2xl font-bold mb-4">测试用例管理</h1>
+			<h1 className="text-2xl font-bold mb-4">
+				测试用例管理{" "}
+				<button className="bg-blue-600 text-white px-4 py-2 rounded" onClick={importDemo}>
+					导入示例用例
+				</button>
+			</h1>
 
 			{/* 表单 */}
 			<div className="border p-4 rounded mb-4 space-y-2 bg-gray-50">
@@ -527,12 +564,6 @@ ${
 				<button className="bg-orange-600 text-white px-4 py-2 rounded" onClick={exportHtml}>
 					导出 HTML 网页
 				</button>
-				{/* <button
-					className="bg-indigo-600 text-white px-4 py-2 rounded"
-					onClick={() => exportMermaidImage(generateMermaid(selectedCase))}
-				>
-					导出 Mermaid 图片
-				</button> */}
 				<button className="bg-red-600 text-white px-4 py-2 rounded" onClick={clearCases}>
 					清空所有用例
 				</button>
