@@ -112,13 +112,17 @@ jobs:
       - name: Sign update package
         id: sign-artifact
         run: |
+          set -euo pipefail
+          # 写入标准 PEM 私钥
           echo "${{ secrets.TAURI_PRIVATE_KEY }}" > private-key.pem
           chmod 600 private-key.pem
-          if [ -n "${{ secrets.TAURI_KEY_PASSWORD }}" ]; then
-            pnpm tauri signer sign --private-key private-key.pem --password "${{ secrets.TAURI_KEY_PASSWORD }}" "${{ steps.find-artifact.outputs.file_path }}"
-          else
-            pnpm tauri signer sign --private-key private-key.pem "${{ steps.find-artifact.outputs.file_path }}"
-          fi
+          
+          # 直接签名（无密码，格式正确）
+          pnpm tauri signer sign \
+            --private-key private-key.pem \
+            "${{ steps.find-artifact.outputs.file_path }}"
+          
+          # 输出签名路径
           echo "signature_path=${{ steps.find-artifact.outputs.file_path }}.sig" >> $GITHUB_OUTPUT
           rm -f private-key.pem
         shell: bash
