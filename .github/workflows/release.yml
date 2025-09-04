@@ -6,41 +6,40 @@ on:
       - 'v*.*.*'
 
 jobs:
-  # 1. 创建 Release（保留原顺序，先用固定描述占位）
+  # 1. 创建 Release
   create-release:
     runs-on: ubuntu-latest
     outputs:
       upload_url: ${{ steps.create.outputs.upload_url }}
-      release_id: ${{ steps.create.outputs.id }}  # 新增：输出 Release ID 用于后续更新描述
+      release_id: ${{ steps.create.outputs.id }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Create GitHub Release
         id: create
-        uses: softprops/action-gh-release@v2  # 升级到 v2 以获取 release_id 输出
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: "Release ${{ github.ref_name }}"
-          body: "正在生成发布说明... 请稍候刷新查看。"  # 临时占位描述
+          body: "正在生成发布说明... 请稍候刷新查看。"
           draft: false
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # 2. 多平台构建（修复变量缺失和产物查找）
+  # 2. 多平台构建
   build:
     needs: create-release
     strategy:
       matrix:
-        # 修复：为每个平台添加缺失的 bundle_dir、ext、content_type
         include:
           # macOS
           - os: macos-latest
             target: x86_64-apple-darwin
             arch: x86_64
-            bundle_dir: dmg  # Tauri 打包的 dmg 存放目录
-            ext: dmg         # 文件后缀
-            content_type: application/x-apple-diskimage  # MIME 类型
+            bundle_dir: dmg
+            ext: dmg
+            content_type: application/x-apple-diskimage
           - os: macos-latest
             target: aarch64-apple-darwin
             arch: aarch64
@@ -51,9 +50,9 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             arch: x86_64
-            bundle_dir: msi  # Tauri 打包的 msi 存放目录
-            ext: msi         # 文件后缀
-            content_type: application/x-msi  # MIME 类型
+            bundle_dir: msi
+            ext: msi
+            content_type: application/x-msi
           - os: windows-latest
             target: aarch64-pc-windows-msvc
             arch: arm64
@@ -78,32 +77,26 @@ jobs:
           version: 9
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      # 构建 Tauri 应用（生成 .exe/.dmg）
       - name: Build Tauri app
         run: pnpm tauri build --target ${{ matrix.target }}
         env:
           TAURI_TARGET: ${{ matrix.target }}
 
-      # 修复：精确查找构建产物（使用 matrix 中定义的变量）
       - name: Locate build artifact
         id: find-artifact
         run: |
-          # 正确的产物路径：src-tauri/target/<target>/release/bundle/<bundle_dir>
           ARTIFACT_DIR="src-tauri/target/${{ matrix.target }}/release/bundle/${{ matrix.bundle_dir }}"
-          # 查找对应后缀的文件（如 .msi 或 .dmg）
           FILE=$(find "$ARTIFACT_DIR" -type f -name "*.$(echo ${{ matrix.ext }} | tr '[:upper:]' '[:lower:]')" | head -n 1)
           
-          # 验证产物是否找到
           if [ -z "$FILE" ]; then
             echo "ERROR: No artifact found in $ARTIFACT_DIR"
             exit 1
           fi
           
-          # 输出文件路径和资产名称
           echo "file_path=$FILE" >> $GITHUB_OUTPUT
           echo "asset_name=${{ github.ref_name }}-${{ matrix.os }}-${{ matrix.arch }}.${{ matrix.ext }}" >> $GITHUB_OUTPUT
         shell: bash
-      # 验证产物是否存在（避免后续步骤失败）
+
       - name: Verify artifact exists
         run: |
           if [ ! -f "${{ steps.find-artifact.outputs.file_path }}" ]; then
@@ -111,13 +104,12 @@ jobs:
             exit 1
           fi
         shell: bash
-      # 签名更新包（使用 Tauri 私钥）
+
       - name: Sign update package
         id: sign-artifact
         run: |
-          # 导出私钥到临时文件（避免直接暴露在命令行）
           echo "${{ secrets.TAURI_PRIVATE_KEY }}" > private-key.pem
-          # 签名命令（如果私钥有密码，添加 --password-stdin 从环境变量读取）
+          
           if [ -n "${{ secrets.TAURI_KEY_PASSWORD }}" ]; then
             echo "${{ secrets.TAURI_KEY_PASSWORD }}" | pnpm tauri signer sign \
               "${{ steps.find-artifact.outputs.file_path }}" \
@@ -128,24 +120,23 @@ jobs:
               "${{ steps.find-artifact.outputs.file_path }}" \
               --private-key private-key.pem
           fi
-          # 输出签名文件路径（原文件 + .sig）
+          
           echo "signature_path=${{ steps.find-artifact.outputs.file_path }}.sig" >> $GITHUB_OUTPUT
-          # 删除临时私钥文件
           rm -f private-key.pem
         shell: bash
-       # 上传主程序包（修复：使用 matrix 中的 content_type）
+
       - name: Upload main artifact
-        uses: actions/upload-release-asset@v2
+        uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ needs.create-release.outputs.upload_url }}
           asset_path: ${{ steps.find-artifact.outputs.file_path }}
           asset_name: ${{ steps.find-artifact.outputs.asset_name }}
-          asset_content_type: ${{ matrix.content_type }}  # 使用 matrix 定义的 MIME 类型
-      # 上传签名文件
+          asset_content_type: ${{ matrix.content_type }}
+
       - name: Upload signature file
-        uses: actions/upload-release-asset@v2
+        uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -154,23 +145,21 @@ jobs:
           asset_name: ${{ steps.find-artifact.outputs.asset_name }}.sig
           asset_content_type: application/octet-stream
 
-  # 3. 生成 release.txt 和 latest.json + 更新 Release 描述
+  # 3. 生成 release.txt 和 latest.json 并上传
   generate-release-files:
     needs: [create-release, build]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Generate release files
         id: generate
         run: |
           VERSION=${{ github.ref_name }}
-          # 移除版本号中的v前缀
           CLEAN_VERSION=${VERSION#v}
-          # 修复：统一下载路径变量（删除未定义的 VERSION_TAG）
           DOWNLOAD_BASE_URL="https://github.com/${{ github.repository }}/releases/download/$VERSION"
           
-          # 生成 release.txt（修复：使用正确的变量 $VERSION 和 $DOWNLOAD_BASE_URL）
           cat > release.txt <<EOF
           Release $VERSION
           ==================
@@ -186,7 +175,6 @@ jobs:
           - [aarch64 (Apple Silicon)]($DOWNLOAD_BASE_URL/$VERSION-macos-latest-aarch64.dmg)
           EOF
           
-          # 生成 latest.json（修复：删除未定义的 VERSION_TAG）
           cat > latest.json <<EOF
           {
             "version": "$CLEAN_VERSION",
@@ -212,21 +200,18 @@ jobs:
             }
           }
           EOF
-      # 新增：更新 Release 描述（将 release.txt 内容填充进去）
+
       - name: Update Release description with release.txt
         run: |
-          # 处理 release.txt 中的换行符，确保符合 JSON 格式
           RELEASE_NOTE=$(cat release.txt | jq -sR .)
-          
-          # 调用 GitHub API 更新 Release 描述
           curl -X PATCH "https://api.github.com/repos/${{ github.repository }}/releases/${{ needs.create-release.outputs.release_id }}" \
             -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             -H "Content-Type: application/json" \
             -d "{\"body\": $RELEASE_NOTE}"
         shell: bash
-      # 上传 release.txt
+
       - name: Upload release.txt
-        uses: actions/upload-release-asset@v2
+        uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -234,9 +219,9 @@ jobs:
           asset_path: release.txt
           asset_name: release.txt
           asset_content_type: text/plain
-      # 上传 latest.json
+
       - name: Upload latest.json
-        uses: actions/upload-release-asset@v2
+        uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
