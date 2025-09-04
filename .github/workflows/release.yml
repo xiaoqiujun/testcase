@@ -121,7 +121,7 @@ jobs:
           fi
           echo "signature_path=${{ steps.find-artifact.outputs.file_path }}.sig" >> $GITHUB_OUTPUT
           rm -f private-key.pem
-        shell: /bin/bash --noprofile --norc -e -o pipefail
+        shell: bash
         env:
           CARGO_HOME: /Users/runner/.cargo
           CARGO_INCREMENTAL: 0
