@@ -81,6 +81,10 @@ jobs:
         run: pnpm tauri build --target ${{ matrix.target }}
         env:
           TAURI_TARGET: ${{ matrix.target }}
+          # 新增：传递私钥给 Tauri 构建流程
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          # 如果私钥有密码，还需添加（可选）
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
 
       - name: Locate build artifact
         id: find-artifact
