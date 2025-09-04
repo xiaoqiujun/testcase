@@ -20,6 +20,7 @@ function App() {
 		const checkForUpdates = async () => {
 			try {
 				const update = await check()
+				console.log(update);
 				if (update) {
 					logger.info(`有可用更新: ${update.version}`)
 
@@ -56,6 +57,7 @@ function App() {
 					}
 				}
 			} catch (checkError) {
+				console.log(checkError)
 				logger.error(`更新检查失败: ${String(checkError)}`)
 				// 更新检查静默失败 - 不要因网络问题打扰用户
 			}

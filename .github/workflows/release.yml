@@ -64,23 +64,74 @@ jobs:
           version: 9
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      # 构建 Tauri 应用（生成 .exe/.dmg）
       - name: Build Tauri app
-        run: pnpm tauri build
-      - name: Find artifact
-        id: artifact
+        run: pnpm tauri build --target ${{ matrix.target }}
+        env:
+          # 确保 Tauri 构建时使用正确的目标
+          TAURI_TARGET: ${{ matrix.target }}
+
+      # 精确查找构建产物（避免找到无关文件）
+      - name: Locate build artifact
+        id: find-artifact
         run: |
-          FILE=$(find src-tauri/target/release/bundle -type f \( -name "*.exe" -o -name "*.dmg" \) | head -n 1)
-          echo "file=$FILE" >> $GITHUB_OUTPUT
-          echo "ext=${FILE##*.}" >> $GITHUB_OUTPUT
+          # Tauri 构建产物的默认路径：src-tauri/target/<target>/release/bundle/<bundle_dir>
+          ARTIFACT_PATH="src-tauri/target/${{ matrix.target }}/release/bundle/${{ matrix.bundle_dir }}"
+          # 找到第一个 .exe 或 .dmg 文件
+          FILE=$(find "$ARTIFACT_PATH" -type f -name "*.$(echo ${{ matrix.ext }} | tr '[:upper:]' '[:lower:]')" | head -n 1)
+          echo "file_path=$FILE" >> $GITHUB_OUTPUT
+          # 生成资产名称（如 v0.1.1-macos-latest-x86_64.dmg）
+          echo "asset_name=${{ github.ref_name }}-${{ matrix.os }}-${{ matrix.arch }}.${{ matrix.ext }}" >> $GITHUB_OUTPUT
         shell: bash
-      - name: Upload artifact to Release
-        uses: actions/upload-release-asset@v1
+      # 验证产物是否存在（避免后续步骤失败）
+      - name: Verify artifact exists
+        run: |
+          if [ ! -f "${{ steps.find-artifact.outputs.file_path }}" ]; then
+            echo "Error: Build artifact not found at ${{ steps.find-artifact.outputs.file_path }}"
+            exit 1
+          fi
+        shell: bash
+      # 签名更新包（使用 Tauri 私钥）
+      - name: Sign update package
+        id: sign-artifact
+        run: |
+          # 导出私钥到临时文件（避免直接暴露在命令行）
+          echo "${{ secrets.TAURI_PRIVATE_KEY }}" > private-key.pem
+          # 签名命令（如果私钥有密码，添加 --password-stdin 从环境变量读取）
+          if [ -n "${{ secrets.TAURI_KEY_PASSWORD }}" ]; then
+            echo "${{ secrets.TAURI_KEY_PASSWORD }}" | pnpm tauri signer sign \
+              "${{ steps.find-artifact.outputs.file_path }}" \
+              --private-key private-key.pem \
+              --password-stdin
+          else
+            pnpm tauri signer sign \
+              "${{ steps.find-artifact.outputs.file_path }}" \
+              --private-key private-key.pem
+          fi
+          # 输出签名文件路径（原文件 + .sig）
+          echo "signature_path=${{ steps.find-artifact.outputs.file_path }}.sig" >> $GITHUB_OUTPUT
+          # 删除临时私钥文件
+          rm -f private-key.pem
+        shell: bash
+       # 上传主程序包
+      - name: Upload main artifact
+        uses: actions/upload-release-asset@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ${{ steps.artifact.outputs.file }}
-          asset_name: ${{ github.ref_name }}-${{ matrix.os }}-${{ matrix.arch }}.${{ steps.artifact.outputs.ext }}
+          asset_path: ${{ steps.find-artifact.outputs.file_path }}
+          asset_name: ${{ steps.find-artifact.outputs.asset_name }}
+          asset_content_type: ${{ matrix.content_type }}
+      # 上传签名文件
+      - name: Upload signature file
+        uses: actions/upload-release-asset@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ${{ steps.sign-artifact.outputs.signature_path }}
+          asset_name: ${{ steps.find-artifact.outputs.asset_name }}.sig
           asset_content_type: application/octet-stream
 
   # 3. 生成 release.txt 和 latest.json 并上传
@@ -105,30 +156,43 @@ jobs:
           Download Links:
 
           ### Windows
-          - [x86_64]($DOWNLOAD_URL/$VERSION-windows-latest-x86_64.exe)
-          - [ARM64]($DOWNLOAD_URL/$VERSION-windows-latest-arm64.exe)
-
+          - [x86_64]($DOWNLOAD_BASE_URL/$VERSION_TAG-windows-latest-x86_64.msi)
+          - [ARM64]($DOWNLOAD_BASE_URL/$VERSION_TAG-windows-latest-arm64.msi)
+          
           ### macOS
-          - [x86_64]($DOWNLOAD_URL/$VERSION-macos-latest-x86_64.dmg)
-          - [aarch64]($DOWNLOAD_URL/$VERSION-macos-latest-aarch64.dmg)
+          - [x86_64 (Intel)]($DOWNLOAD_BASE_URL/$VERSION_TAG-macos-latest-x86_64.dmg)
+          - [aarch64 (Apple Silicon)]($DOWNLOAD_BASE_URL/$VERSION_TAG-macos-latest-aarch64.dmg)
           EOF
           
           # 生成 latest.json 用于更新检查
           cat > latest.json <<EOF
           {
             "version": "$CLEAN_VERSION",
-            "releaseName": "Release $VERSION",
-            "releaseDate": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
-            "downloads": {
-              "windows-x86_64": "$DOWNLOAD_URL/$VERSION-windows-latest-x86_64.exe",
-              "windows-arm64": "$DOWNLOAD_URL/$VERSION-windows-latest-arm64.exe",
-              "macos-x86_64": "$DOWNLOAD_URL/$VERSION-macos-latest-x86_64.dmg",
-              "macos-aarch64": "$DOWNLOAD_URL/$VERSION-macos-latest-aarch64.dmg"
+            "notes": "Release $VERSION_TAG",
+            "pub_date": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+            "platforms": {
+              "windows-x86_64": {
+                "url": "$DOWNLOAD_BASE_URL/$VERSION_TAG-windows-latest-x86_64.msi",
+                "signature": "$DOWNLOAD_BASE_URL/$VERSION_TAG-windows-latest-x86_64.msi.sig"
+              },
+              "windows-arm64": {
+                "url": "$DOWNLOAD_BASE_URL/$VERSION_TAG-windows-latest-arm64.msi",
+                "signature": "$DOWNLOAD_BASE_URL/$VERSION_TAG-windows-latest-arm64.msi.sig"
+              },
+              "darwin-x86_64": {
+                "url": "$DOWNLOAD_BASE_URL/$VERSION_TAG-macos-latest-x86_64.dmg",
+                "signature": "$DOWNLOAD_BASE_URL/$VERSION_TAG-macos-latest-x86_64.dmg.sig"
+              },
+              "darwin-aarch64": {
+                "url": "$DOWNLOAD_BASE_URL/$VERSION_TAG-macos-latest-aarch64.dmg",
+                "signature": "$DOWNLOAD_BASE_URL/$VERSION_TAG-macos-latest-aarch64.dmg.sig"
+              }
             }
           }
           EOF
+      # 上传 release.txt
       - name: Upload release.txt
-        uses: actions/upload-release-asset@v1
+        uses: actions/upload-release-asset@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -136,8 +200,9 @@ jobs:
           asset_path: release.txt
           asset_name: release.txt
           asset_content_type: text/plain
+      # 上传 latest.json
       - name: Upload latest.json
-        uses: actions/upload-release-asset@v1
+        uses: actions/upload-release-asset@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
