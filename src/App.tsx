@@ -78,7 +78,7 @@ function App() {
 					<TooltipTrigger asChild>
 						<button onClick={onClick} aria-label="项目仓库" className="flex items-center">
 							<IconBrandGithub className="w-6 h-6" stroke={2} />
-							项目仓库（一款轻量级、本地化、跨平台的 测试用例管理工具）
+							项目仓库（一个适合 个人测试人员 或 小团队 的轻量级工具，如果你觉得它好用，欢迎点个 ⭐️ Star 支持！）
 						</button>
 					</TooltipTrigger>
 					<TooltipContent>
