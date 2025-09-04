@@ -4,6 +4,9 @@ import * as XLSX from "xlsx"
 import mermaid from "mermaid"
 import { Workbook, RootTopic, Topic } from "xmind-generator"
 import domtoimage from "dom-to-image"
+import { confirmDialog } from "./utils/dialog"
+import { storage } from "./utils/storage"
+import { logger } from "./utils/logger"
 
 type Branch = { condition: string; nextStep: number }
 type Step = {
@@ -195,14 +198,26 @@ const TestCasePreview: React.FC<PreviewProps> = ({ testCases }) => (
 
 // ===================== 主页面 =====================
 export default function TestCaseAdvancedPage() {
-	const [cases, setCases] = useState<TestCase[]>(() => JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]"))
+	const [cases, setCases] = useState<TestCase[]>([])
 	const [title, setTitle] = useState("")
 	const [precondition, setPrecondition] = useState("")
 	const [steps, setSteps] = useState<Step[]>([{ action: "", expectedStatus: "成功", expectedValue: "" }])
 	const [editingId, setEditingId] = useState<string | null>(null)
 
 	useEffect(() => {
-		localStorage.setItem(STORAGE_KEY, JSON.stringify(cases))
+		const loadCases = async () => {
+			try {
+				const saved = await storage.get(STORAGE_KEY)
+				setCases(JSON.parse(saved || "[]"))
+			} catch (e) {
+				logger.error(`加载用例失败:${ String(e)}`)
+			}
+		}
+		loadCases()
+	}, [])
+
+	useEffect(() => {
+		storage.set(STORAGE_KEY, JSON.stringify(cases))
 	}, [cases])
 
 	// ==== 表单操作 ====
@@ -251,13 +266,17 @@ export default function TestCaseAdvancedPage() {
 		resetForm()
 	}
 	const deleteCase = (id: string) => {
-		if (confirm("确定删除该用例吗？")) setCases(cases.filter((c) => c.id !== id))
+		confirmDialog("确定删除该用例吗？").then((confirmed) => {
+			if (confirmed) setCases(cases.filter((c) => c.id !== id))
+		})
 	}
 	const clearCases = () => {
-		if (confirm("确定清空所有用例吗？")) {
-			setCases([])
-			localStorage.removeItem(STORAGE_KEY)
-		}
+		confirmDialog("确定清空所有用例吗？").then((confirmed) => {
+			if (confirmed) {
+				setCases([])
+				localStorage.removeItem(STORAGE_KEY)
+			}
+		})
 	}
 
 	// ==== 导出功能 ====
@@ -445,7 +464,7 @@ ${
 			<h1 className="text-2xl font-bold mb-4 flex justify-between">
 				测试用例管理
 				<button className="bg-blue-600 text-white px-4 py-2 rounded" onClick={importDemo}>
-					导入示例用例
+					示例用例
 				</button>
 			</h1>
 

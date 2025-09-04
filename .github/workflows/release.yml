@@ -112,20 +112,26 @@ jobs:
       - name: Sign update package
         id: sign-artifact
         run: |
+          run: |
+          # 导出私钥到临时文件
           echo "${{ secrets.TAURI_PRIVATE_KEY }}" > private-key.pem
+          chmod 600 private-key.pem  # 限制权限，增强安全性
           
+          # 签名命令：严格按照 --private-key <私钥> --password <密码> <文件路径> 的顺序
           if [ -n "${{ secrets.TAURI_KEY_PASSWORD }}" ]; then
-            echo "${{ secrets.TAURI_KEY_PASSWORD }}" | pnpm tauri signer sign \
-              "${{ steps.find-artifact.outputs.file_path }}" \
+            pnpm tauri signer sign \
               --private-key private-key.pem \
-              --password-stdin
+              --password "${{ secrets.TAURI_KEY_PASSWORD }}" \
+              "${{ steps.find-artifact.outputs.file_path }}"  # 文件路径放在最后
           else
             pnpm tauri signer sign \
-              "${{ steps.find-artifact.outputs.file_path }}" \
-              --private-key private-key.pem
+              --private-key private-key.pem \
+              "${{ steps.find-artifact.outputs.file_path }}"  # 无密码时同样保持顺序
           fi
           
+          # 输出签名文件路径
           echo "signature_path=${{ steps.find-artifact.outputs.file_path }}.sig" >> $GITHUB_OUTPUT
+          # 清理临时文件
           rm -f private-key.pem
         shell: bash
 
