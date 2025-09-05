@@ -107,8 +107,7 @@ jobs:
           releaseBody: "Draft release, will be updated later."
           releaseDraft: true
           prerelease: false
-          tauriScript: pnpm
-          args: --target ${{ matrix.target }}
+          args: ${{ matrix.target }}
           includeUpdaterJson: true
       - name: Locate build artifact and signature
         id: find-artifacts
