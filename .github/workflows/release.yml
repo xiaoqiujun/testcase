@@ -6,62 +6,175 @@ on:
       - 'v*.*.*'
 
 jobs:
-  publish-tauri:
-    permissions:
-      contents: write
+  # 1. 创建 Release
+  create-release:
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create.outputs.upload_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create Release
+        id: create
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: Release ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+
+  # 2. 构建 Tauri 应用
+  build:
+    needs: create-release
     strategy:
-      fail-fast: false
       matrix:
         include:
-          - platform: 'macos-latest' # for Arm based macs (M1 and above).
-            args: '--target aarch64-apple-darwin'
-          - platform: 'macos-latest' # for Intel based macs.
-            args: '--target x86_64-apple-darwin'
-          - platform: 'ubuntu-22.04'
-            args: ''
-          - platform: 'ubuntu-22.04-arm' # Only available in public repos.
-            args: ''
-          - platform: 'windows-latest'
-            args: ''
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+            arch: aarch64
+            ext: dmg
+            platform_key: darwin-aarch64
+          - platform: macos-latest
+            target: x86_64-apple-darwin
+            arch: x86_64
+            ext: dmg
+            platform_key: darwin-x86_64
+          - platform: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            arch: x86_64
+            ext: deb
+            platform_key: linux-x86_64
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            arch: x86_64
+            ext: msi
+            platform_key: windows-x86_64
 
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Install Linux deps
+        if: matrix.platform == 'ubuntu-22.04'
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
 
-      - name: install dependencies (ubuntu only)
-        if: matrix.platform == 'ubuntu-22.04' # This must match the platform value defined above.
+      - name: Build app
+        run: pnpm tauri build --target ${{ matrix.target }}
+
+      - name: Locate artifact
+        id: artifact
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          ARTIFACT=$(find src-tauri/target/${{ matrix.target }}/release/bundle -type f -name "*.${{ matrix.ext }}" | head -n 1)
+          SIG_FILE="$ARTIFACT.sig"
+          echo "file_path=$ARTIFACT" >> $GITHUB_OUTPUT
+          echo "sig_path=$SIG_FILE" >> $GITHUB_OUTPUT
+          echo "asset_name=${{ github.ref_name }}-${{ matrix.platform }}-${{ matrix.arch }}.${{ matrix.ext }}" >> $GITHUB_OUTPUT
 
-      - name: setup node
-        uses: actions/setup-node@v4
-        with:
-          node-version: lts/*
-          cache: 'yarn' # Set this to npm, yarn or pnpm.
+          SIG_CONTENT=$(cat "$SIG_FILE" | sed ':a;N;$!ba;s/\n/\\n/g')
+          echo "sig_content=$SIG_CONTENT" >> $GITHUB_OUTPUT
 
-      - name: install Rust stable
-        uses: dtolnay/rust-toolchain@stable # Set this to dtolnay/rust-toolchain@nightly
-        with:
-          # Those targets are only used on macos runners so it's in an `if` to slightly speed up windows and linux builds.
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
-
-      - name: Rust cache
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: './src-tauri -> target'
-
-      - name: install frontend dependencies
-        # If you don't have `beforeBuildCommand` configured you may want to build your frontend here too.
-        run: yarn install # change this to npm or pnpm depending on which one you use.
-
-      - uses: tauri-apps/tauri-action@v0
+      - name: Upload Release Asset (binary)
+        uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: app-v__VERSION__ # the action automatically replaces \_\_VERSION\_\_ with the app version.
-          releaseName: 'App v__VERSION__'
-          releaseBody: 'See the assets to download this version and install.'
-          releaseDraft: true
-          prerelease: false
-          args: ${{ matrix.args }}
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ${{ steps.artifact.outputs.file_path }}
+          asset_name: ${{ steps.artifact.outputs.asset_name }}
+          asset_content_type: application/octet-stream
+
+      - name: Upload Release Asset (signature)
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ${{ steps.artifact.outputs.sig_path }}
+          asset_name: ${{ steps.artifact.outputs.asset_name }}.sig
+          asset_content_type: text/plain
+
+    outputs:
+      platform_key: ${{ matrix.platform_key }}
+      url: https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${{ steps.artifact.outputs.asset_name }}
+      signature: ${{ steps.artifact.outputs.sig_content }}
+
+  # 3. 生成 release.txt 和 latest.json
+  generate-release-files:
+    needs: [create-release, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate release.txt
+        run: |
+          VERSION=${{ github.ref_name }}
+          echo "Release $VERSION" > release.txt
+          echo "" >> release.txt
+          echo "Changes:" >> release.txt
+          git log -1 --pretty=format:"%h - %s (%an)" >> release.txt
+
+      - name: Upload release.txt
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: release.txt
+          asset_name: release.txt
+          asset_content_type: text/plain
+
+      - name: Generate latest.json
+        run: |
+          VERSION=${{ github.ref_name }}
+          CLEAN_VERSION=${VERSION#v}
+          PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          echo "{" > latest.json
+          echo "  \"version\": \"$CLEAN_VERSION\"," >> latest.json
+          echo "  \"notes\": \"Release $VERSION\"," >> latest.json
+          echo "  \"pub_date\": \"$PUB_DATE\"," >> latest.json
+          echo "  \"platforms\": {" >> latest.json
+
+          first=true
+          for job in ${{ toJson(needs.build.outputs) }}; do
+            PLATFORM=$(echo $job | jq -r '.platform_key')
+            URL=$(echo $job | jq -r '.url')
+            SIG=$(echo $job | jq -r '.signature')
+
+            if [ "$first" = true ]; then
+              first=false
+            else
+              echo "," >> latest.json
+            fi
+
+            echo "    \"$PLATFORM\": {" >> latest.json
+            echo "      \"url\": \"$URL\"," >> latest.json
+            echo "      \"signature\": \"$SIG\"" >> latest.json
+            echo -n "    }" >> latest.json
+          done
+
+          echo "" >> latest.json
+          echo "  }" >> latest.json
+          echo "}" >> latest.json
+
+      - name: Upload latest.json
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: latest.json
+          asset_name: latest.json
+          asset_content_type: application/json
