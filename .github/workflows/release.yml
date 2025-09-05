@@ -107,7 +107,7 @@ jobs:
           releaseBody: "Draft release, will be updated later."
           releaseDraft: true
           prerelease: false
-          args: ${{ matrix.target }}
+          args: --target ${{ matrix.target }}
           includeUpdaterJson: true
       - name: Locate build artifact and signature
         id: find-artifacts
