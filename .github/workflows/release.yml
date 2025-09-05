@@ -101,24 +101,36 @@ jobs:
       #   if: matrix.platform == 'macos-latest'
       #   run: |
       #     brew install webkit2gtk
-
-      - name: Build with Tauri
-        id: tauri-build
-        run: |
-          pnpm tauri build --target ${{ matrix.target }} --verbose
-          # 查找构建产物
-          if [[ "${{ matrix.platform }}" == "windows-latest" ]]; then
-            ARTIFACT_PATH=$(find src-tauri/target/${{ matrix.target }}/release/bundle/msi -name "*.msi" | head -n 1)
-          elif [[ "${{ matrix.platform }}" == "macos-latest" ]]; then
-            ARTIFACT_PATH=$(find src-tauri/target/${{ matrix.target }}/release/bundle/dmg -name "*.dmg" | head -n 1)
-          else
-            ARTIFACT_PATH=$(find src-tauri/target/${{ matrix.target }}/release/bundle/deb -name "*.deb" | head -n 1)
-          fi
-          echo "artifactPath=$ARTIFACT_PATH" >> $GITHUB_OUTPUT
+      - uses: tauri-apps/tauri-action@v0
         env:
           NODE_OPTIONS: "--max_old_space_size=4096"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+        with:
+          tagName: app-v__VERSION__ 
+          releaseName: 'App v__VERSION__'
+          releaseBody: 'See the assets to download this version and install.'
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
+      # - name: Build with Tauri
+      #   id: tauri-build
+      #   run: |
+      #     pnpm tauri build --target ${{ matrix.target }} --verbose
+      #     # 查找构建产物
+      #     if [[ "${{ matrix.platform }}" == "windows-latest" ]]; then
+      #       ARTIFACT_PATH=$(find src-tauri/target/${{ matrix.target }}/release/bundle/msi -name "*.msi" | head -n 1)
+      #     elif [[ "${{ matrix.platform }}" == "macos-latest" ]]; then
+      #       ARTIFACT_PATH=$(find src-tauri/target/${{ matrix.target }}/release/bundle/dmg -name "*.dmg" | head -n 1)
+      #     else
+      #       ARTIFACT_PATH=$(find src-tauri/target/${{ matrix.target }}/release/bundle/deb -name "*.deb" | head -n 1)
+      #     fi
+      #     echo "artifactPath=$ARTIFACT_PATH" >> $GITHUB_OUTPUT
+      #   env:
+      #     NODE_OPTIONS: "--max_old_space_size=4096"
+      #     TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+      #     TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
 
       - name: Locate build artifact and signature
         id: find-artifacts
