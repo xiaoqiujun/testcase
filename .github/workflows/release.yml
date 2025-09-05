@@ -32,57 +32,10 @@ jobs:
   build:
     needs: create-release
     strategy:
+      fail-fast: false
       matrix:
-        include:
-          # macOS
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            arch: x86_64
-            ext: dmg
-            bundle_dir: macos
-            content_type: application/x-apple-diskimage
-            platform_key: darwin-x86_64
-          - os: macos-latest
-            target: aarch64-apple-darwin
-            arch: aarch64
-            ext: dmg
-            bundle_dir: macos
-            content_type: application/x-apple-diskimage
-            platform_key: darwin-aarch64
-          # Windows
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            arch: x86_64
-            ext: msi
-            bundle_dir: msi
-            content_type: application/x-msi
-            platform_key: windows-x86_64
-          - os: windows-latest
-            target: aarch64-pc-windows-msvc
-            arch: arm64
-            ext: msi
-            bundle_dir: msi
-            content_type: application/x-msi
-            platform_key: windows-arm64
-          # Linux
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            arch: x86_64
-            ext: deb
-            bundle_dir: deb
-            content_type: application/vnd.debian.binary-package
-            platform_key: linux-x86_64
-            cross_compile: false # 本地架构，无需交叉编译
-          - os: ubuntu-latest
-            target: aarch64-unknown-linux-gnu
-            arch: aarch64
-            ext: deb
-            bundle_dir: deb
-            content_type: application/vnd.debian.binary-package
-            platform_key: linux-aarch64
-            cross_compile: true # 需交叉编译，标记为 true
-    runs-on: ${{ matrix.os }}
-
+        platform: [macos-latest, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
 
@@ -98,6 +51,27 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      - name: Install Rust stable
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+
+      # Rust cache
+      - uses: Swatinem/rust-cache@v1
+
+      - name: install dependencies (ubuntu only)
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev webkit2gtk-4.0 libappindicator3-dev librsvg2-dev patchelf
+      # Install wasm-pack
+      - uses: jetli/wasm-pack-action@v0.3.0
+        with:
+          # Optional version of wasm-pack to install(eg. 'v0.9.1', 'latest')
+          version: v0.9.1
+
+      - name: Install rsw
+        run: cargo install rsw
 
       - name: Build with Tauri Action
         uses: tauri-apps/tauri-action@v0
@@ -108,10 +82,9 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
         with:
-          tauriScript: pnpm
-          args: --target ${{ matrix.target }}
-          includeDebug: false
-
+          target: ${{ matrix.target }}
+          args: ${{ matrix.args }}
+          
       - name: Locate build artifact and signature
         id: find-artifacts
         run: |
