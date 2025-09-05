@@ -86,7 +86,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'pnpm'
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
@@ -124,19 +123,6 @@ jobs:
         if: matrix.platform == 'macos-latest'
         run: |
           brew install webkit2gtk
-
-      - name: Check environment
-        run: |
-          node --version
-          pnpm --version
-          rustc --version
-          cargo --version
-        shell: bash
-
-      - name: Check Tauri configuration
-        run: pnpm tauri info
-        env:
-          NODE_OPTIONS: "--max_old_space_size=4096"
 
       - name: Build with Tauri
         id: tauri-build
