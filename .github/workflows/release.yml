@@ -24,6 +24,7 @@ jobs:
           body: "正在生成发布说明... 请稍候刷新查看。"
           draft: false
           prerelease: false
+          fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -37,120 +38,144 @@ jobs:
           - os: macos-latest
             target: x86_64-apple-darwin
             arch: x86_64
-            bundle_dir: dmg
             ext: dmg
+            bundle_dir: macos
             content_type: application/x-apple-diskimage
+            platform_key: darwin-x86_64
           - os: macos-latest
             target: aarch64-apple-darwin
             arch: aarch64
-            bundle_dir: dmg
             ext: dmg
+            bundle_dir: macos
             content_type: application/x-apple-diskimage
+            platform_key: darwin-aarch64
           # Windows
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             arch: x86_64
-            bundle_dir: msi
             ext: msi
+            bundle_dir: msi
             content_type: application/x-msi
+            platform_key: windows-x86_64
           - os: windows-latest
             target: aarch64-pc-windows-msvc
             arch: arm64
-            bundle_dir: msi
             ext: msi
+            bundle_dir: msi
             content_type: application/x-msi
+            platform_key: windows-arm64
+          # Linux
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            arch: x86_64
+            ext: deb
+            bundle_dir: deb
+            content_type: application/vnd.debian.binary-package
+            platform_key: linux-x86_64
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            arch: aarch64
+            ext: deb
+            bundle_dir: deb
+            content_type: application/vnd.debian.binary-package
+            platform_key: linux-aarch64
     runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v4
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
+          cache: 'pnpm'
+
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 9
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Build Tauri app
-        run: pnpm tauri build --target ${{ matrix.target }}
+
+      - name: Build with Tauri Action
+        uses: tauri-apps/tauri-action@v0
+        id: tauri-build
         env:
-          TAURI_TARGET: ${{ matrix.target }}
-          # 新增：传递私钥给 Tauri 构建流程
+          NODE_OPTIONS: "--max_old_space_size=4096"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
-          # 如果私钥有密码，还需添加（可选）
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+        with:
+          tauriScript: pnpm
+          args: --target ${{ matrix.target }}
+          includeDebug: false
 
-      - name: Locate build artifact
-        id: find-artifact
+      - name: Locate build artifact and signature
+        id: find-artifacts
         run: |
-          ARTIFACT_DIR="src-tauri/target/${{ matrix.target }}/release/bundle/${{ matrix.bundle_dir }}"
-          FILE=$(find "$ARTIFACT_DIR" -type f -name "*.$(echo ${{ matrix.ext }} | tr '[:upper:]' '[:lower:]')" | head -n 1)
+          # 从tauri-action的输出中获取构建产物路径
+          ARTIFACT_PATH="${{ steps.tauri-build.outputs.artifactPath }}"
           
-          if [ -z "$FILE" ]; then
-            echo "ERROR: No artifact found in $ARTIFACT_DIR"
+          if [ -z "$ARTIFACT_PATH" ] || [ ! -f "$ARTIFACT_PATH" ]; then
+            echo "ERROR: No main artifact found at $ARTIFACT_PATH"
             exit 1
           fi
           
-          echo "file_path=$FILE" >> $GITHUB_OUTPUT
-          echo "asset_name=${{ github.ref_name }}-${{ matrix.os }}-${{ matrix.arch }}.${{ matrix.ext }}" >> $GITHUB_OUTPUT
-        shell: bash
-
-      - name: Verify artifact exists
-        run: |
-          if [ ! -f "${{ steps.find-artifact.outputs.file_path }}" ]; then
-            echo "Error: Build artifact not found at ${{ steps.find-artifact.outputs.file_path }}"
+          # 查找对应的签名文件 (.sig)
+          # 也可以直接使用签名文件的完整路径
+          # SIG_FILE="src-tauri/target/release/bundle/${{ matrix.bundle_dir }}/*.${{ matrix.ext }}.sig"
+          SIG_FILE="${ARTIFACT_PATH}.sig"
+          
+          if [ ! -f "$SIG_FILE" ]; then
+            echo "ERROR: Signature file not found at $SIG_FILE"
+            # 显示目录内容帮助调试
+            echo "Directory contents:"
+            ls -la $(dirname "$SIG_FILE")
             exit 1
           fi
+          
+          # 输出找到的文件路径和名称
+          ASSET_NAME="${{ github.ref_name }}-${{ matrix.os }}-${{ matrix.arch }}.${{ matrix.ext }}"
+          echo "file_path=$ARTIFACT_PATH" >> $GITHUB_OUTPUT
+          echo "sig_path=$SIG_FILE" >> $GITHUB_OUTPUT
+          echo "asset_name=$ASSET_NAME" >> $GITHUB_OUTPUT
+          
+          # 直接读取签名内容（不进行base64编码）
+          echo "sig_content<<EOF" >> $GITHUB_OUTPUT
+          cat "$SIG_FILE" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
         shell: bash
 
-      - name: Sign update package
-        id: sign-artifact
-        run: |
-          set -euo pipefail
-          # 写入标准 PEM 私钥
-          echo "${{ secrets.TAURI_PRIVATE_KEY }}" > private-key.pem
-          chmod 600 private-key.pem
-          
-          # 直接签名（无密码，格式正确）
-          pnpm tauri signer sign \
-            --private-key private-key.pem \
-            "${{ steps.find-artifact.outputs.file_path }}"
-          
-          # 输出签名路径
-          echo "signature_path=${{ steps.find-artifact.outputs.file_path }}.sig" >> $GITHUB_OUTPUT
-          rm -f private-key.pem
-        shell: bash
-        env:
-          CARGO_HOME: /Users/runner/.cargo
-          CARGO_INCREMENTAL: 0
-          CARGO_TERM_COLOR: always
-          PNPM_HOME: /Users/runner/setup-pnpm/node_modules/.bin
-
-      - name: Upload main artifact
+      - name: Upload main artifact to release
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ${{ steps.find-artifact.outputs.file_path }}
-          asset_name: ${{ steps.find-artifact.outputs.asset_name }}
+          asset_path: ${{ steps.find-artifacts.outputs.file_path }}
+          asset_name: ${{ steps.find-artifacts.outputs.asset_name }}
           asset_content_type: ${{ matrix.content_type }}
 
-      - name: Upload signature file
+      - name: Upload signature file to release
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ${{ steps.sign-artifact.outputs.signature_path }}
-          asset_name: ${{ steps.find-artifact.outputs.asset_name }}.sig
+          asset_path: ${{ steps.find-artifacts.outputs.sig_path }}
+          asset_name: ${{ steps.find-artifacts.outputs.asset_name }}.sig
           asset_content_type: application/octet-stream
+      
+      # 保存签名内容和URL供后续步骤使用
+      - name: Save signature info
+        run: |
+          # 使用特殊分隔符保存签名内容，避免格式问题
+          echo "${{ matrix.platform_key }}<<END_SIGNATURE" >> $GITHUB_ENV
+          cat ${{ steps.find-artifacts.outputs.sig_path }} >> $GITHUB_ENV
+          echo "END_SIGNATURE" >> $GITHUB_ENV
+          
+          echo "${{ matrix.platform_key }}_url=https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${{ steps.find-artifacts.outputs.asset_name }}" >> $GITHUB_ENV
 
   # 3. 生成 release.txt 和 latest.json 并上传
   generate-release-files:
@@ -167,6 +192,7 @@ jobs:
           CLEAN_VERSION=${VERSION#v}
           DOWNLOAD_BASE_URL="https://github.com/${{ github.repository }}/releases/download/$VERSION"
           
+          # 生成 release.txt
           cat > release.txt <<EOF
           Release $VERSION
           ==================
@@ -180,8 +206,13 @@ jobs:
           ### macOS
           - [x86_64 (Intel)]($DOWNLOAD_BASE_URL/$VERSION-macos-latest-x86_64.dmg)
           - [aarch64 (Apple Silicon)]($DOWNLOAD_BASE_URL/$VERSION-macos-latest-aarch64.dmg)
+          
+          ### Linux
+          - [x86_64]($DOWNLOAD_BASE_URL/$VERSION-ubuntu-latest-x86_64.deb)
+          - [aarch64]($DOWNLOAD_BASE_URL/$VERSION-ubuntu-latest-aarch64.deb)
           EOF
           
+          # 生成 latest.json，直接使用签名内容
           cat > latest.json <<EOF
           {
             "version": "$CLEAN_VERSION",
@@ -189,24 +220,33 @@ jobs:
             "pub_date": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
             "platforms": {
               "windows-x86_64": {
-                "url": "$DOWNLOAD_BASE_URL/$VERSION-windows-latest-x86_64.msi",
-                "signature": "$DOWNLOAD_BASE_URL/$VERSION-windows-latest-x86_64.msi.sig"
+                "url": "${{ env.windows-x86_64_url }}",
+                "signature": "$(echo '${{ env.windows-x86_64 }}' | sed -e ':a' -e '/^\n*$/{$d;N;ba' -e '}' -e 's/\n/\\n/g')"
               },
               "windows-arm64": {
-                "url": "$DOWNLOAD_BASE_URL/$VERSION-windows-latest-arm64.msi",
-                "signature": "$DOWNLOAD_BASE_URL/$VERSION-windows-latest-arm64.msi.sig"
+                "url": "${{ env.windows-arm64_url }}",
+                "signature": "$(echo '${{ env.windows-arm64 }}' | sed -e ':a' -e '/^\n*$/{$d;N;ba' -e '}' -e 's/\n/\\n/g')"
               },
               "darwin-x86_64": {
-                "url": "$DOWNLOAD_BASE_URL/$VERSION-macos-latest-x86_64.dmg",
-                "signature": "$DOWNLOAD_BASE_URL/$VERSION-macos-latest-x86_64.dmg.sig"
+                "url": "${{ env.darwin-x86_64_url }}",
+                "signature": "$(echo '${{ env.darwin-x86_64 }}' | sed -e ':a' -e '/^\n*$/{$d;N;ba' -e '}' -e 's/\n/\\n/g')"
               },
               "darwin-aarch64": {
-                "url": "$DOWNLOAD_BASE_URL/$VERSION-macos-latest-aarch64.dmg",
-                "signature": "$DOWNLOAD_BASE_URL/$VERSION-macos-latest-aarch64.dmg.sig"
+                "url": "${{ env.darwin-aarch64_url }}",
+                "signature": "$(echo '${{ env.darwin-aarch64 }}' | sed -e ':a' -e '/^\n*$/{$d;N;ba' -e '}' -e 's/\n/\\n/g')"
+              },
+              "linux-x86_64": {
+                "url": "${{ env.linux-x86_64_url }}",
+                "signature": "$(echo '${{ env.linux-x86_64 }}' | sed -e ':a' -e '/^\n*$/{$d;N;ba' -e '}' -e 's/\n/\\n/g')"
+              },
+              "linux-aarch64": {
+                "url": "${{ env.linux-aarch64_url }}",
+                "signature": "$(echo '${{ env.linux-aarch64 }}' | sed -e ':a' -e '/^\n*$/{$d;N;ba' -e '}' -e 's/\n/\\n/g')"
               }
             }
           }
           EOF
+        shell: bash
 
       - name: Update Release description with release.txt
         run: |
@@ -236,3 +276,4 @@ jobs:
           asset_path: latest.json
           asset_name: latest.json
           asset_content_type: application/json
+    

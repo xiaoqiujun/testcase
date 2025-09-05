@@ -30,7 +30,7 @@
 	"bundle": {
 		"active": true,
     "createUpdaterArtifacts":true,
-		"targets": ["nsis", "msi", "dmg"],
+		"targets": "all",
 		"icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
     "publisher": "xiaoqiujun",
     "category": "DeveloperTool",
@@ -57,7 +57,7 @@
         "https://github.com/xiaoqiujun/testcase/releases/latest/download/latest.json"
       ],
       "dialog": true,
-      "pubkey": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAt6ISdwveFxhZZs1d45bQe8hlG3H6FuMMEZuyd/OYMQdKGWmYhL2LCsilXhphrQ9xpBQmGsfV+u1K0c3POYm8acSqEhGI8ASDRh013ih1sW7DqwEYNkYARB5MmwjMo6ZtfmyEm+g4qDX8YHe1GIIXN4YPEP9M9V46qSxVWoJiCsYEfLgblSzncmLRMQ/gfAxY/NGxtyai8zv/hfXnil2IlDYNxoYulqrPDKDQDafxXXWNtjyPzNesOYBCDfY0jNY4dc/PjS4qikmoxJ8HZtTkDP78Kz+3wxEU4ifwIe/pOUFtjhZwxT32XK6z25BSzOW4vhPCrwVhq1oUsBWT3PHhRwIDAQAB"
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDRBODk0RTQ2M0YxRTY3MDkKUldRSlp4NC9SazZKU2tJUjdrWVZSdm0ybWZUUTZZMmtobzNYRHhzbjh6bkxuMVR5RkpzSDhTTHIK"
     }
 	}
 }
