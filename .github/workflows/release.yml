@@ -34,7 +34,50 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [macos-latest, ubuntu-latest, windows-latest]
+        include:
+          - platform: macos-latest
+            platform_key: darwin-x86_64
+            arch: x86_64
+            target: x86_64-apple-darwin
+            bundle_dir: dmg
+            ext: dmg
+            content_type: application/x-apple-diskimage
+          - platform: macos-latest
+            platform_key: darwin-aarch64
+            arch: aarch64
+            target: aarch64-apple-darwin
+            bundle_dir: dmg
+            ext: dmg
+            content_type: application/x-apple-diskimage
+          - platform: ubuntu-latest
+            platform_key: linux-x86_64
+            arch: x86_64
+            target: x86_64-unknown-linux-gnu
+            bundle_dir: deb
+            ext: deb
+            content_type: application/vnd.debian.binary-package
+          - platform: ubuntu-latest
+            platform_key: linux-aarch64
+            arch: aarch64
+            target: aarch64-unknown-linux-gnu
+            bundle_dir: deb
+            ext: deb
+            content_type: application/vnd.debian.binary-package
+          - platform: windows-latest
+            platform_key: windows-x86_64
+            arch: x86_64
+            target: x86_64-pc-windows-msvc
+            bundle_dir: msi
+            ext: msi
+            content_type: application/x-msi
+          - platform: windows-latest
+            platform_key: windows-arm64
+            arch: arm64
+            target: aarch64-pc-windows-msvc
+            bundle_dir: msi
+            ext: msi
+            content_type: application/x-msi
+
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
@@ -43,6 +86,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: 'pnpm'
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
@@ -50,55 +94,83 @@ jobs:
           version: 9
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm list
+        env:
+          NODE_OPTIONS: "--max_old_space_size=4096"
+
       - name: Install Rust stable
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
+          target: ${{ matrix.target }}
+          override: true
 
       # Rust cache
       - uses: Swatinem/rust-cache@v1
+        with:
+          key: ${{ matrix.target }}
 
-      - name: install dependencies (ubuntu only)
+      - name: Install system dependencies (ubuntu only)
         if: matrix.platform == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev webkit2gtk-4.0 libappindicator3-dev librsvg2-dev patchelf
-      # Install wasm-pack
-      - uses: jetli/wasm-pack-action@v0.3.0
-        with:
-          # Optional version of wasm-pack to install(eg. 'v0.9.1', 'latest')
-          version: v0.9.1
+          # 验证安装
+          dpkg -l libgtk-3-dev webkit2gtk-4.0
 
-      - name: Install rsw
-        run: cargo install rsw
+      - name: Install system dependencies (macOS only)
+        if: matrix.platform == 'macos-latest'
+        run: |
+          brew install webkit2gtk
 
-      - name: Build with Tauri Action
-        uses: tauri-apps/tauri-action@v0
-        id: tauri-build
+      - name: Check environment
+        run: |
+          node --version
+          pnpm --version
+          rustc --version
+          cargo --version
+        shell: bash
+
+      - name: Check Tauri configuration
+        run: pnpm tauri info
         env:
           NODE_OPTIONS: "--max_old_space_size=4096"
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build with Tauri
+        id: tauri-build
+        run: |
+          pnpm tauri build --target ${{ matrix.target }} --verbose
+          # 查找构建产物
+          if [[ "${{ matrix.platform }}" == "windows-latest" ]]; then
+            ARTIFACT_PATH=$(find src-tauri/target/${{ matrix.target }}/release/bundle/msi -name "*.msi" | head -n 1)
+          elif [[ "${{ matrix.platform }}" == "macos-latest" ]]; then
+            ARTIFACT_PATH=$(find src-tauri/target/${{ matrix.target }}/release/bundle/dmg -name "*.dmg" | head -n 1)
+          else
+            ARTIFACT_PATH=$(find src-tauri/target/${{ matrix.target }}/release/bundle/deb -name "*.deb" | head -n 1)
+          fi
+          echo "artifactPath=$ARTIFACT_PATH" >> $GITHUB_OUTPUT
+        env:
+          NODE_OPTIONS: "--max_old_space_size=4096"
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
-        with:
-          target: ${{ matrix.target }}
-          args: ${{ matrix.args }}
-          
+
       - name: Locate build artifact and signature
         id: find-artifacts
         run: |
-          # 从tauri-action的输出中获取构建产物路径
+          # 从构建步骤获取构建产物路径
           ARTIFACT_PATH="${{ steps.tauri-build.outputs.artifactPath }}"
           
           if [ -z "$ARTIFACT_PATH" ] || [ ! -f "$ARTIFACT_PATH" ]; then
             echo "ERROR: No main artifact found at $ARTIFACT_PATH"
+            # 显示可能的构建产物目录
+            echo "Possible artifacts:"
+            find src-tauri/target -name "*.msi" -o -name "*.dmg" -o -name "*.deb"
             exit 1
           fi
           
           # 查找对应的签名文件 (.sig)
-          # 也可以直接使用签名文件的完整路径
-          # SIG_FILE="src-tauri/target/release/bundle/${{ matrix.bundle_dir }}/*.${{ matrix.ext }}.sig"
           SIG_FILE="${ARTIFACT_PATH}.sig"
           
           if [ ! -f "$SIG_FILE" ]; then
@@ -110,12 +182,12 @@ jobs:
           fi
           
           # 输出找到的文件路径和名称
-          ASSET_NAME="${{ github.ref_name }}-${{ matrix.os }}-${{ matrix.arch }}.${{ matrix.ext }}"
+          ASSET_NAME="${{ github.ref_name }}-${{ matrix.platform }}-${{ matrix.arch }}.${{ matrix.ext }}"
           echo "file_path=$ARTIFACT_PATH" >> $GITHUB_OUTPUT
           echo "sig_path=$SIG_FILE" >> $GITHUB_OUTPUT
           echo "asset_name=$ASSET_NAME" >> $GITHUB_OUTPUT
           
-          # 直接读取签名内容（不进行base64编码）
+          # 读取签名内容
           echo "sig_content<<EOF" >> $GITHUB_OUTPUT
           cat "$SIG_FILE" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
@@ -186,7 +258,7 @@ jobs:
           - [aarch64]($DOWNLOAD_BASE_URL/$VERSION-ubuntu-latest-aarch64.deb)
           EOF
           
-          # 生成 latest.json，直接使用签名内容
+          # 生成 latest.json，处理签名内容中的换行
           cat > latest.json <<EOF
           {
             "version": "$CLEAN_VERSION",
@@ -250,4 +322,3 @@ jobs:
           asset_path: latest.json
           asset_name: latest.json
           asset_content_type: application/json
-    
