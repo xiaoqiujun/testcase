@@ -31,66 +31,51 @@ jobs:
   # 2. 多平台构建
   build:
     needs: create-release
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-latest
-            platform_key: darwin-x86_64
-            arch: x86_64
-            target: x86_64-apple-darwin
-            bundle_dir: dmg
-            ext: dmg
-            content_type: application/x-apple-diskimage
-          - platform: macos-latest
-            platform_key: darwin-aarch64
-            arch: aarch64
-            target: aarch64-apple-darwin
-            bundle_dir: dmg
-            ext: dmg
-            content_type: application/x-apple-diskimage
-          - platform: ubuntu-latest
-            platform_key: linux-x86_64
-            arch: x86_64
-            target: x86_64-unknown-linux-gnu
-            bundle_dir: deb
-            ext: deb
-            content_type: application/vnd.debian.binary-package
-          - platform: ubuntu-latest
-            platform_key: linux-aarch64
-            arch: aarch64
-            target: aarch64-unknown-linux-gnu
-            bundle_dir: deb
-            ext: deb
-            content_type: application/vnd.debian.binary-package
-          - platform: windows-latest
-            platform_key: windows-x86_64
-            arch: x86_64
-            target: x86_64-pc-windows-msvc
-            bundle_dir: msi
-            ext: msi
-            content_type: application/x-msi
-          - platform: windows-latest
-            platform_key: windows-arm64
-            arch: arm64
-            target: aarch64-pc-windows-msvc
-            bundle_dir: msi
-            ext: msi
-            content_type: application/x-msi
+          - platform: 'macos-latest'
+            args: '--target aarch64-apple-darwin'
+          - platform: 'macos-latest'
+            args: '--target x86_64-apple-darwin'
+          - platform: 'ubuntu-22.04'
+            args: ''
+          - platform: 'ubuntu-22.04-arm'
+            args: ''
+          - platform: 'windows-latest'
+            args: ''
 
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
+      - name: Install Rust stable
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.target }}
+          override: true
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 9
+
+      - name: install dependencies (ubuntu only)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
       - name: Install dependencies
         run: |
@@ -99,17 +84,10 @@ jobs:
         env:
           NODE_OPTIONS: "--max_old_space_size=4096"
 
-      - name: Install Rust stable
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          target: ${{ matrix.target }}
-          override: true
-
       # Rust cache
       - uses: Swatinem/rust-cache@v1
         with:
-          key: ${{ matrix.target }}
+          workspaces: './src-tauri -> target'
 
       - name: Install system dependencies (ubuntu only)
         if: matrix.platform == 'ubuntu-latest'
