@@ -15,16 +15,59 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Generate release notes and release.txt
+        id: release_notes
+        run: |
+          # 提取版本信息
+          VERSION=${{ github.ref_name }}
+          CLEAN_VERSION=${VERSION#v}
+          DOWNLOAD_BASE_URL="https://github.com/${{ github.repository }}/releases/download/$VERSION"
+          
+          # 生成release.txt
+          cat > release.txt <<EOF
+          Release $VERSION
+          ==================
+
+          Download Links:
+
+          ### Windows
+          - [x86_64]($DOWNLOAD_BASE_URL/$VERSION-windows-latest-x86_64.msi)
+          - [ARM64]($DOWNLOAD_BASE_URL/$VERSION-windows-latest-arm64.msi)
+          
+          ### macOS
+          - [x86_64 (Intel)]($DOWNLOAD_BASE_URL/$VERSION-macos-latest-x86_64.dmg)
+          - [aarch64 (Apple Silicon)]($DOWNLOAD_BASE_URL/$VERSION-macos-latest-aarch64.dmg)
+          
+          ### Linux
+          - [x86_64]($DOWNLOAD_BASE_URL/$VERSION-ubuntu-latest-x86_64.deb)
+          EOF
+          
+          # 生成发布说明（包含变更日志）
+          echo "RELEASE_NOTES<<EOF" >> $GITHUB_ENV
+          echo "# Release $VERSION" >> $GITHUB_ENV
+          echo "" >> $GITHUB_ENV
+          echo "## Changelog" >> $GITHUB_ENV
+          echo "" >> $GITHUB_ENV
+          # 获取当前标签与上一个标签之间的提交记录
+          git log --pretty=format:"- %s" $(git describe --tags --abbrev=0 HEAD^)..HEAD >> $GITHUB_ENV
+          echo "" >> $GITHUB_ENV
+          echo "## Download Links" >> $GITHUB_ENV
+          echo "" >> $GITHUB_ENV
+          cat release.txt | grep -v "==================" >> $GITHUB_ENV  # 避免重复标题线
+          echo "EOF" >> $GITHUB_ENV
+
       - name: Create GitHub Release
         id: create
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: "Release ${{ github.ref_name }}"
-          body: "正在生成发布说明... 请稍候刷新查看。"
+          body: ${{ env.RELEASE_NOTES }}
           draft: false
           prerelease: false
           fail_on_unmatched_files: false
+          files: |
+            release.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -39,14 +82,24 @@ jobs:
         include:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
+            platform_key: windows-x86_64
+            filename_suffix: windows-latest-x86_64.msi
           - os: windows-latest
             target: aarch64-pc-windows-msvc
+            platform_key: windows-aarch64
+            filename_suffix: windows-latest-arm64.msi
           - os: macos-latest
             target: aarch64-apple-darwin
+            platform_key: darwin-aarch64
+            filename_suffix: macos-latest-aarch64.dmg
           - os: macos-latest
             target: x86_64-apple-darwin
+            platform_key: darwin-x86_64
+            filename_suffix: macos-latest-x86_64.dmg
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
+            platform_key: linux-x86_64
+            filename_suffix: ubuntu-latest-x86_64.deb
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -64,11 +117,13 @@ jobs:
         with:
           workspaces: src-tauri
           save-if: false
+          
       - name: Install dependencies (ubuntu only)
         if: matrix.os == 'ubuntu-22.04'
         run: |
           sudo apt-get update
           sudo apt-get install -y libxslt1.1 libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+          
       - name: Install x86 OpenSSL (macOS only)
         if: matrix.target == 'x86_64-apple-darwin'
         run: |
@@ -82,6 +137,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -95,6 +151,7 @@ jobs:
           NODE_OPTIONS: "--max_old_space_size=4096"
 
       - name: Tauri build
+        id: tauri_build
         uses: tauri-apps/tauri-action@v0
         env:
           NODE_OPTIONS: "--max_old_space_size=4096"
@@ -103,289 +160,96 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: "${{ github.ref_name }}"
-          releaseBody: "Draft release, will be updated later."
+          releaseName: "测试用例管理工具 ${{ github.ref_name }}"
+          releaseBody: ${{ env.RELEASE_NOTES }}
           releaseDraft: true
           prerelease: false
           args: --target ${{ matrix.target }}
           includeUpdaterJson: true
-      - name: Locate build artifact and signature
-        id: find-artifacts
+          artifactName: "${{ github.ref_name }}-${{ matrix.filename_suffix }}"
+
+      - name: Save build artifacts info
         run: |
-          # 从构建步骤获取构建产物路径
-          ARTIFACT_PATH="${{ steps.tauri-build.outputs.artifactPath }}"
+          # 提取构建产物信息
+          echo 'ARTIFACT_INFO<<EOF' >> $GITHUB_ENV
+          echo '${{ steps.tauri_build.outputs.artifactInfo }}' >> $GITHUB_ENV
+          echo 'EOF' >> $GITHUB_ENV
           
-          if [ -z "$ARTIFACT_PATH" ] || [ ! -f "$ARTIFACT_PATH" ]; then
-            echo "ERROR: No main artifact found at $ARTIFACT_PATH"
-            # 显示可能的构建产物目录
-            echo "Possible artifacts:"
-            find src-tauri/target -name "*.msi" -o -name "*.dmg" -o -name "*.deb"
-            exit 1
-          fi
+          # 创建平台特定的JSON片段
+          echo 'PLATFORM_JSON<<EOF' > platform.json.tmp
+          echo '  "${{ matrix.platform_key }}": {' >> platform.json.tmp
+          echo '    "url": "${{ fromJSON(steps.tauri_build.outputs.artifactInfo).url }}",' >> platform.json.tmp
+          echo '    "signature": "${{ fromJSON(steps.tauri_build.outputs.artifactInfo).signature }}"' >> platform.json.tmp
+          echo '  }' >> platform.json.tmp
+          echo 'EOF' >> platform.json.tmp
           
-          # 查找对应的签名文件 (.sig)
-          SIG_FILE="${ARTIFACT_PATH}.sig"
+          # 保存到文件以便后续步骤使用
+          cat platform.json.tmp > platform_${{ matrix.platform_key }}.json
           
-          if [ ! -f "$SIG_FILE" ]; then
-            echo "ERROR: Signature file not found at $SIG_FILE"
-            # 显示目录内容帮助调试
-            echo "Directory contents:"
-            ls -la $(dirname "$SIG_FILE")
-            exit 1
-          fi
-          
-          # 输出找到的文件路径和名称
-          ASSET_NAME="${{ github.ref_name }}-${{ matrix.platform }}-${{ matrix.arch }}.${{ matrix.ext }}"
-          echo "file_path=$ARTIFACT_PATH" >> $GITHUB_OUTPUT
-          echo "sig_path=$SIG_FILE" >> $GITHUB_OUTPUT
-          echo "asset_name=$ASSET_NAME" >> $GITHUB_OUTPUT
-          
-          # 读取签名内容
-          echo "sig_content<<EOF" >> $GITHUB_OUTPUT
-          cat "$SIG_FILE" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-        shell: bash
-
-      - name: Upload main artifact to release
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload platform JSON
+        uses: actions/upload-artifact@v4
         with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ${{ steps.find-artifacts.outputs.file_path }}
-          asset_name: ${{ steps.find-artifacts.outputs.asset_name }}
-          asset_content_type: ${{ matrix.content_type }}
+          name: platform-jsons
+          path: platform_${{ matrix.platform_key }}.json
 
-      - name: Upload signature file to release
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ${{ steps.find-artifacts.outputs.sig_path }}
-          asset_name: ${{ steps.find-artifacts.outputs.asset_name }}.sig
-          asset_content_type: application/octet-stream
-      
-      # 保存签名内容和URL供后续步骤使用
-      - name: Save signature info
-        run: |
-          # 使用特殊分隔符保存签名内容，避免格式问题
-          echo "${{ matrix.platform_key }}<<END_SIGNATURE" >> $GITHUB_ENV
-          cat ${{ steps.find-artifacts.outputs.sig_path }} >> $GITHUB_ENV
-          echo "END_SIGNATURE" >> $GITHUB_ENV
-          
-          echo "${{ matrix.platform_key }}_url=https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${{ steps.find-artifacts.outputs.asset_name }}" >> $GITHUB_ENV
-
-  release-for-linux-arm:
-    name: Release Build for Linux ARM
-    needs: [create-release,build]
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-22.04
-            target: aarch64-unknown-linux-gnu
-            arch: arm64
-          - os: ubuntu-22.04
-            target: armv7-unknown-linux-gnueabihf
-            arch: armhf
-    runs-on: ${{ matrix.os }}
+  # 3. 生成并上传latest.json
+  generate-latest-json:
+    needs: [create-release, build]
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-
-      - name: Install Rust Stable
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Add Rust Target
-        run: rustup target add ${{ matrix.target }}
-
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
+        
+      - name: Download all platform JSONs
+        uses: actions/download-artifact@v4
         with:
-          workspaces: src-tauri
-          save-if: false
-
-      - name: Install Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10
-      - name: "Setup for linux"
-        run: |-
-          sudo ls -lR /etc/apt/
-
-          cat > /tmp/sources.list << EOF
-          deb [arch=amd64,i386] http://archive.ubuntu.com/ubuntu jammy main multiverse universe restricted
-          deb [arch=amd64,i386] http://archive.ubuntu.com/ubuntu jammy-security main multiverse universe restricted
-          deb [arch=amd64,i386] http://archive.ubuntu.com/ubuntu jammy-updates main multiverse universe restricted
-          deb [arch=amd64,i386] http://archive.ubuntu.com/ubuntu jammy-backports main multiverse universe restricted
-
-          deb [arch=armhf,arm64] http://ports.ubuntu.com/ubuntu-ports jammy main multiverse universe restricted
-          deb [arch=armhf,arm64] http://ports.ubuntu.com/ubuntu-ports jammy-security main multiverse universe restricted
-          deb [arch=armhf,arm64] http://ports.ubuntu.com/ubuntu-ports jammy-updates main multiverse universe restricted
-          deb [arch=armhf,arm64] http://ports.ubuntu.com/ubuntu-ports jammy-backports main multiverse universe restricted
+          name: platform-jsons
+          path: ./platforms
+          
+      - name: Generate latest.json
+        run: |
+          # 提取版本号（去掉v前缀）
+          VERSION=$(echo ${{ github.ref_name }} | sed 's/^v//')
+          
+          # 获取发布说明
+          NOTES=$(cat << 'EOF'
+          本次更新包含多项改进和bug修复，提升了应用的稳定性和用户体验。
+          详细更新内容请查看完整的发布说明。
           EOF
-
-          sudo mv /etc/apt/sources.list /etc/apt/sources.list.default
-          sudo mv /tmp/sources.list /etc/apt/sources.list
-
-          sudo dpkg --add-architecture ${{ matrix.arch }}
-          sudo apt update
-
-          sudo apt install -y \
-            libxslt1.1:${{ matrix.arch }} \
-            libwebkit2gtk-4.1-dev:${{ matrix.arch }} \
-            libayatana-appindicator3-dev:${{ matrix.arch }} \
-            libssl-dev:${{ matrix.arch }} \
-            patchelf:${{ matrix.arch }} \
-            librsvg2-dev:${{ matrix.arch }}
-
-      - name: "Install aarch64 tools"
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: |
-          sudo apt install -y \
-            gcc-aarch64-linux-gnu \
-            g++-aarch64-linux-gnu
-
-      - name: "Install armv7 tools"
-        if: matrix.target == 'armv7-unknown-linux-gnueabihf'
-        run: |
-          sudo apt install -y \
-            gcc-arm-linux-gnueabihf \
-            g++-arm-linux-gnueabihf
-
-      - name: Build for Linux
-        run: |
-          export PKG_CONFIG_ALLOW_CROSS=1
-          if [ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]; then
-            export PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig/:$PKG_CONFIG_PATH
-            export PKG_CONFIG_SYSROOT_DIR=/usr/aarch64-linux-gnu/
-          elif [ "${{ matrix.target }}" == "armv7-unknown-linux-gnueabihf" ]; then
-            export PKG_CONFIG_PATH=/usr/lib/arm-linux-gnueabihf/pkgconfig/:$PKG_CONFIG_PATH
-            export PKG_CONFIG_SYSROOT_DIR=/usr/arm-linux-gnueabihf/
-          fi
-          pnpm build --target ${{ matrix.target }}
-        env:
-          NODE_OPTIONS: "--max_old_space_size=4096"
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
-      - name: Get Version
-        run: |
-          sudo apt-get update
-          sudo apt-get install jq
-          echo "VERSION=$(cat package.json | jq '.version' | tr -d '"')" >> $GITHUB_ENV
-          echo "BUILDTIME=$(TZ=Asia/Shanghai date)" >> $GITHUB_ENV
-      - name: Upload Release
+          )
+          
+          # 格式化发布说明
+          NOTES=$(echo "$NOTES" | sed ':a;N;$!ba;s/\n/\\n/g')
+          
+          # 创建latest.json文件
+          echo "{" > latest.json
+          echo "  \"version\": \"$VERSION\"," >> latest.json
+          echo "  \"notes\": \"$NOTES\"," >> latest.json
+          echo "  \"pub_date\": \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\"," >> latest.json
+          echo "  \"platforms\": {" >> latest.json
+          
+          # 合并所有平台的JSON片段
+          FIRST=true
+          for file in ./platforms/*.json; do
+            if [ "$FIRST" = true ]; then
+              FIRST=false
+            else
+              echo "," >> latest.json
+            fi
+            cat "$file" >> latest.json
+          done
+          
+          echo "  }" >> latest.json
+          echo "}" >> latest.json
+          
+          # 显示生成的latest.json内容
+          cat latest.json
+          
+      - name: Upload latest.json to Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: ${{ github.ref_name }}
-          body: "See release notes for detailed changelog."
-          token: ${{ secrets.GITHUB_TOKEN }}
-          files: |
-            src-tauri/target/${{ matrix.target }}/release/bundle/deb/*.deb
-            src-tauri/target/${{ matrix.target }}/release/bundle/rpm/*.rpm
-          
-  # 3. 生成 release.txt 和 latest.json 并上传
-  # generate-release-files:
-  #   needs: [create-release, build]
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - name: Checkout
-  #       uses: actions/checkout@v4
-
-  #     - name: Generate release files
-  #       id: generate
-  #       run: |
-  #         VERSION=${{ github.ref_name }}
-  #         CLEAN_VERSION=${VERSION#v}
-  #         DOWNLOAD_BASE_URL="https://github.com/${{ github.repository }}/releases/download/$VERSION"
-          
-  #         # 生成 release.txt
-  #         cat > release.txt <<EOF
-  #         Release $VERSION
-  #         ==================
-
-  #         Download Links:
-
-  #         ### Windows
-  #         - [x86_64]($DOWNLOAD_BASE_URL/$VERSION-windows-latest-x86_64.msi)
-  #         - [ARM64]($DOWNLOAD_BASE_URL/$VERSION-windows-latest-arm64.msi)
-          
-  #         ### macOS
-  #         - [x86_64 (Intel)]($DOWNLOAD_BASE_URL/$VERSION-macos-latest-x86_64.dmg)
-  #         - [aarch64 (Apple Silicon)]($DOWNLOAD_BASE_URL/$VERSION-macos-latest-aarch64.dmg)
-          
-  #         ### Linux
-  #         - [x86_64]($DOWNLOAD_BASE_URL/$VERSION-ubuntu-latest-x86_64.deb)
-  #         - [aarch64]($DOWNLOAD_BASE_URL/$VERSION-ubuntu-latest-aarch64.deb)
-  #         EOF
-          
-  #         # 生成 latest.json，处理签名内容中的换行
-  #         cat > latest.json <<EOF
-  #         {
-  #           "version": "$CLEAN_VERSION",
-  #           "notes": "Release $VERSION",
-  #           "pub_date": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
-  #           "platforms": {
-  #             "windows-x86_64": {
-  #               "url": "${{ env.windows-x86_64_url }}",
-  #               "signature": "$(echo '${{ env.windows-x86_64 }}' | sed -e ':a' -e '/^\n*$/{$d;N;ba' -e '}' -e 's/\n/\\n/g')"
-  #             },
-  #             "windows-arm64": {
-  #               "url": "${{ env.windows-arm64_url }}",
-  #               "signature": "$(echo '${{ env.windows-arm64 }}' | sed -e ':a' -e '/^\n*$/{$d;N;ba' -e '}' -e 's/\n/\\n/g')"
-  #             },
-  #             "darwin-x86_64": {
-  #               "url": "${{ env.darwin-x86_64_url }}",
-  #               "signature": "$(echo '${{ env.darwin-x86_64 }}' | sed -e ':a' -e '/^\n*$/{$d;N;ba' -e '}' -e 's/\n/\\n/g')"
-  #             },
-  #             "darwin-aarch64": {
-  #               "url": "${{ env.darwin-aarch64_url }}",
-  #               "signature": "$(echo '${{ env.darwin-aarch64 }}' | sed -e ':a' -e '/^\n*$/{$d;N;ba' -e '}' -e 's/\n/\\n/g')"
-  #             },
-  #             "linux-x86_64": {
-  #               "url": "${{ env.linux-x86_64_url }}",
-  #               "signature": "$(echo '${{ env.linux-x86_64 }}' | sed -e ':a' -e '/^\n*$/{$d;N;ba' -e '}' -e 's/\n/\\n/g')"
-  #             },
-  #             "linux-aarch64": {
-  #               "url": "${{ env.linux-aarch64_url }}",
-  #               "signature": "$(echo '${{ env.linux-aarch64 }}' | sed -e ':a' -e '/^\n*$/{$d;N;ba' -e '}' -e 's/\n/\\n/g')"
-  #             }
-  #           }
-  #         }
-  #         EOF
-  #       shell: bash
-
-  #     - name: Update Release description with release.txt
-  #       run: |
-  #         RELEASE_NOTE=$(cat release.txt | jq -sR .)
-  #         curl -X PATCH "https://api.github.com/repos/${{ github.repository }}/releases/${{ needs.create-release.outputs.release_id }}" \
-  #           -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-  #           -H "Content-Type: application/json" \
-  #           -d "{\"body\": $RELEASE_NOTE}"
-  #       shell: bash
-
-  #     - name: Upload release.txt
-  #       uses: actions/upload-release-asset@v1
-  #       env:
-  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  #       with:
-  #         upload_url: ${{ needs.create-release.outputs.upload_url }}
-  #         asset_path: release.txt
-  #         asset_name: release.txt
-  #         asset_content_type: text/plain
-
-  #     - name: Upload latest.json
-  #       uses: actions/upload-release-asset@v1
-  #       env:
-  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  #       with:
-  #         upload_url: ${{ needs.create-release.outputs.upload_url }}
-  #         asset_path: latest.json
-  #         asset_name: latest.json
-  #         asset_content_type: application/json
+          files: latest.json
+          append_body: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
