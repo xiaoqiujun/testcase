@@ -55,7 +55,6 @@ jobs:
           # 生成发布说明（包含变更日志）
           echo "RELEASE_NOTES<<EOF" >> $GITHUB_ENV
           echo "" >> $GITHUB_ENV
-          echo "## Changelog" >> $GITHUB_ENV
           echo "" >> $GITHUB_ENV
           # 获取当前标签与上一个标签之间的提交记录
           git log --pretty=format:"- %s" $(git describe --tags --abbrev=0 HEAD^)..HEAD >> $GITHUB_ENV
@@ -201,6 +200,8 @@ jobs:
           releaseName: 'App v__VERSION__'
           releaseBody: 'See the assets to download this version and install.'
           prerelease: false
+          releaseDraft: true
+          includeUpdaterJson: true
           args: --target ${{ matrix.target }}
 
       # 提取构建产物信息
@@ -208,5 +209,5 @@ jobs:
         id: extract_info
         run: |
           ARTIFACT_INFO='${{ steps.tauri_build.outputs }}'
-          echo "Artifact Info: $ARTIFACT_INFO"
+          echo "Artifact Info: toJSON($ARTIFACT_INFO)"
         shell: bash
