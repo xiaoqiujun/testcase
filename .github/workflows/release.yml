@@ -35,7 +35,7 @@ jobs:
           Download Links:
 
           ### Windows
-          - [x86_64]($DOWNLOAD_BASE_URL/$APP_NAME-$VERSION_x86_64.exe)
+          - [x86_64]($DOWNLOAD_BASE_URL/$APP_NAME-$VERSION-x86_64.exe)
           - [ARM64]($DOWNLOAD_BASE_URL/$APP_NAME-$VERSION-arm64.exe)
           
           ### macOS
@@ -49,7 +49,6 @@ jobs:
           
           # 生成发布说明（包含变更日志）
           echo "RELEASE_NOTES<<EOF" >> $GITHUB_ENV
-          echo "# Release $VERSION" >> $GITHUB_ENV
           echo "" >> $GITHUB_ENV
           echo "## Changelog" >> $GITHUB_ENV
           echo "" >> $GITHUB_ENV
@@ -117,11 +116,11 @@ jobs:
             package_type: deb
 
           # Linux RPM 包
-          - os: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            platform_key: linux-x86_64
-            filename_suffix: x86_64.rpm
-            package_type: rpm
+          # - os: ubuntu-22.04
+          #   target: x86_64-unknown-linux-gnu
+          #   platform_key: linux-x86_64
+          #   filename_suffix: x86_64.rpm
+          #   package_type: rpm
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -199,63 +198,63 @@ jobs:
           includeUpdaterJson: true
 
   # 3. 生成并上传latest.json
-  generate-latest-json:
-    needs: [create-release, build]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+  # generate-latest-json:
+  #   needs: [create-release, build]
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Checkout Repository
+  #       uses: actions/checkout@v4
         
-      - name: Download all platform JSONs
-        uses: actions/download-artifact@v4
-        with:
-          name: platform-jsons
-          path: ./platforms
+  #     - name: Download all platform JSONs
+  #       uses: actions/download-artifact@v4
+  #       with:
+  #         name: platform-jsons
+  #         path: ./platforms
           
-      - name: Generate latest.json
-        run: |
-          # 提取版本号（去掉v前缀）
-          VERSION=$(echo ${{ github.ref_name }} | sed 's/^v//')
+  #     - name: Generate latest.json
+  #       run: |
+  #         # 提取版本号（去掉v前缀）
+  #         VERSION=$(echo ${{ github.ref_name }} | sed 's/^v//')
           
-          # 获取发布说明
-          NOTES=$(cat << 'EOF'
-          本次更新包含多项改进和bug修复，提升了应用的稳定性和用户体验。
-          详细更新内容请查看完整的发布说明。
-          EOF
-          )
+  #         # 获取发布说明
+  #         NOTES=$(cat << 'EOF'
+  #         本次更新包含多项改进和bug修复，提升了应用的稳定性和用户体验。
+  #         详细更新内容请查看完整的发布说明。
+  #         EOF
+  #         )
           
-          # 格式化发布说明
-          NOTES=$(echo "$NOTES" | sed ':a;N;$!ba;s/\n/\\n/g')
+  #         # 格式化发布说明
+  #         NOTES=$(echo "$NOTES" | sed ':a;N;$!ba;s/\n/\\n/g')
           
-          # 创建latest.json文件
-          echo "{" > latest.json
-          echo "  \"version\": \"$VERSION\"," >> latest.json
-          echo "  \"notes\": \"$NOTES\"," >> latest.json
-          echo "  \"pub_date\": \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\"," >> latest.json
-          echo "  \"platforms\": {" >> latest.json
+  #         # 创建latest.json文件
+  #         echo "{" > latest.json
+  #         echo "  \"version\": \"$VERSION\"," >> latest.json
+  #         echo "  \"notes\": \"$NOTES\"," >> latest.json
+  #         echo "  \"pub_date\": \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\"," >> latest.json
+  #         echo "  \"platforms\": {" >> latest.json
           
-          # 合并所有平台的JSON片段
-          FIRST=true
-          for file in ./platforms/*.json; do
-            if [ "$FIRST" = true ]; then
-              FIRST=false
-            else
-              echo "," >> latest.json
-            fi
-            cat "$file" >> latest.json
-          done
+  #         # 合并所有平台的JSON片段
+  #         FIRST=true
+  #         for file in ./platforms/*.json; do
+  #           if [ "$FIRST" = true ]; then
+  #             FIRST=false
+  #           else
+  #             echo "," >> latest.json
+  #           fi
+  #           cat "$file" >> latest.json
+  #         done
           
-          echo "  }" >> latest.json
-          echo "}" >> latest.json
+  #         echo "  }" >> latest.json
+  #         echo "}" >> latest.json
           
-          # 显示生成的latest.json内容
-          cat latest.json
+  #         # 显示生成的latest.json内容
+  #         cat latest.json
           
-      - name: Upload latest.json to Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          files: latest.json
-          append_body: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  #     - name: Upload latest.json to Release
+  #       uses: softprops/action-gh-release@v2
+  #       with:
+  #         tag_name: ${{ github.ref_name }}
+  #         files: latest.json
+  #         append_body: false
+  #       env:
+  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
