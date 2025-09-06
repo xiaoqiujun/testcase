@@ -202,6 +202,7 @@ jobs:
           prerelease: false
           releaseDraft: false
           includeUpdaterJson: false
+          tauriScript: pnpm
           args: --target ${{ matrix.target }}
 
       # 提取构建产物信息
