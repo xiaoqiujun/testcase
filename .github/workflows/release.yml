@@ -198,10 +198,11 @@ jobs:
           # 配置 Tauri 签名密钥密码
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
         with:
-          tagName: ${{ github.ref_name }} # 发布标签名
+          tagName: app-v__VERSION__ # the action automatically replaces \_\_VERSION\_\_ with the app version.
+          releaseName: 'App v__VERSION__'
+          releaseBody: 'See the assets to download this version and install.'
           prerelease: false
           args: --target ${{ matrix.target }}
-          includeUpdaterJson: true
 
       # 提取构建产物信息
       - name: Extract build info and generate JSON fragment
