@@ -20,7 +20,7 @@ jobs:
       - name: Set Env
         run: |
           echo "BUILDTIME=$(TZ=Asia/Shanghai date)" >> $GITHUB_ENV
-          VERSION=$(jq -r .version package.json)
+          VERSION=$(jq -r .version ./package.json)
           echo "VERSION=$VERSION" >> $GITHUB_ENV
         shell: bash
 
