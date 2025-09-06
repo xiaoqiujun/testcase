@@ -6,7 +6,7 @@ on:
       - 'v*.*.*'
 
 env:
-  APP_NAME: "Test Case"
+  APP_NAME: "TestCase"
   APP_VERSION: ${{ github.ref_name }}
 
 jobs:
@@ -35,7 +35,7 @@ jobs:
           Download Links:
 
           ### Windows
-          - [x86_64]($DOWNLOAD_BASE_URL/$APP_NAME_$VERSION_x86_64.exe)
+          - [x86_64]($DOWNLOAD_BASE_URL/$APP_NAME-$VERSION_x86_64.exe)
           - [ARM64]($DOWNLOAD_BASE_URL/$APP_NAME-$VERSION-arm64.exe)
           
           ### macOS
