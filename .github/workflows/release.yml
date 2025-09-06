@@ -8,7 +8,6 @@ on:
 env:
   APP_NAME: "TestCase"
   APP_VERSION: ${{ github.ref_name }}
-  CLEAN_VERSION: ${{ replace(github.ref_name, 'v', '') }}
 
 jobs:
   # 1. 创建 Release
@@ -196,7 +195,7 @@ jobs:
           args: --target ${{ matrix.target }}
           includeUpdaterJson: true
 
-  # 提取构建产物信息并生成平台JSON片段
+      # 提取构建产物信息
       - name: Extract build info and generate JSON fragment
         id: extract_info
         run: |
@@ -215,8 +214,8 @@ jobs:
           DOWNLOAD_URL=$($JQ_PATH -r '.url // "unknown"' <<< "$ARTIFACT_INFO")
           SIGNATURE=$($JQ_PATH -r '.signature // "unknown"' <<< "$ARTIFACT_INFO")
           FILENAME=$($JQ_PATH -r '.name // "unknown"' <<< "$ARTIFACT_INFO")
-          # 使用环境变量中的干净版本号
-          CLEAN_VERSION=${{ env.CLEAN_VERSION }}
+          # 使用从create-release传递的干净版本号
+          CLEAN_VERSION=${{ needs.create-release.outputs.clean_version }}
 
           # 生成平台JSON片段
           echo "{
