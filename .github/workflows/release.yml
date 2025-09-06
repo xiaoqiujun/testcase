@@ -210,6 +210,5 @@ jobs:
         id: extract_info
         run: |
           ARTIFACT_INFO='${{ steps.tauri_build.outputs }}'
-          echo "Artifact Info: ${{ toJSON($ARTIFACT_INFO) }}"
           echo "Artifact Info: ${{ toJSON(ARTIFACT_INFO) }}"
         shell: bash
