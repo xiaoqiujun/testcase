@@ -19,9 +19,13 @@ jobs:
     steps:
       - name: Set Env
         run: |
-          echo "BUILDTIME=$(TZ=Asia/Shanghai date)" >> $GITHUB_ENV
-          VERSION=$(jq -r .version ./package.json)
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          # Strip git ref prefix from version
+          echo "${{ github.ref }}"
+          # VERSION=$(echo "${{ github.ref }}" | sed -e 's,.*/\(.*\),\1,')
+
+          # # Strip "v" prefix from tag name
+          # [[ "${{ github.ref }}" == "refs/tags/"* ]] && VERSION=$(echo $VERSION | sed -e 's/^v//')
+          echo "$VERSION"
         shell: bash
 
       - uses: actions/checkout@v4
