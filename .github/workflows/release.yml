@@ -17,6 +17,13 @@ jobs:
       upload_url: ${{ steps.create.outputs.upload_url }}
       release_id: ${{ steps.create.outputs.id }}
     steps:
+      - name: Set Env
+        run: |
+          echo "BUILDTIME=$(TZ=Asia/Shanghai date)" >> $GITHUB_ENV
+          VERSION=$(jq -r .version package.json)
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+        shell: bash
+
       - uses: actions/checkout@v4
 
       - name: Generate release notes and release.txt
@@ -33,16 +40,16 @@ jobs:
           ==================
 
           ### Windows
-          - [x86_64]($DOWNLOAD_BASE_URL/$APP_NAME-$VERSION-x86_64.exe)
-          - [ARM64]($DOWNLOAD_BASE_URL/$APP_NAME-$VERSION-arm64.exe)
+          - [x86_64]($DOWNLOAD_BASE_URL/$APP_NAME-${env.VERSION}-x86_64.exe)
+          - [ARM64]($DOWNLOAD_BASE_URL/$APP_NAME-${env.VERSION}-arm64.exe)
           
           ### macOS
-          - [x86_64 (Intel)]($DOWNLOAD_BASE_URL/$APP_NAME-$VERSION-x86_64.dmg)
-          - [aarch64 (Apple Silicon)]($DOWNLOAD_BASE_URL/$APP_NAME-$VERSION-aarch64.dmg)
+          - [x86_64 (Intel)]($DOWNLOAD_BASE_URL/$APP_NAME-${env.VERSION}-x86_64.dmg)
+          - [aarch64 (Apple Silicon)]($DOWNLOAD_BASE_URL/$APP_NAME-${env.VERSION}-aarch64.dmg)
           
           ### Linux
-          - [x86_64]($DOWNLOAD_BASE_URL/$APP_NAME-$VERSION-x86_64.deb)
-          - [ARM64]($DOWNLOAD_BASE_URL/$APP_NAME-$VERSION-arm64.deb)
+          - [x86_64]($DOWNLOAD_BASE_URL/$APP_NAME-${env.VERSION}-x86_64.deb)
+          - [ARM64]($DOWNLOAD_BASE_URL/$APP_NAME-${env.VERSION}-arm64.deb)
           EOF
           
           # 生成发布说明（包含变更日志）
@@ -256,7 +263,7 @@ jobs:
       - name: Generate latest.json
         run: |
           # 准备基础信息
-          VERSION=${{ github.ref_name#v }}
+          VERSION=${env.VERSION}
           # 处理发布说明中的换行符
           RELEASE_NOTES=$(echo "${{ needs.create-release.outputs.release_notes }}" | sed ':a;N;$!ba;s/\n/\\n/g')
           PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
