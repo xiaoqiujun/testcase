@@ -37,7 +37,6 @@ jobs:
           
           # 生成release.txt
           cat > release.txt <<EOF
-          Release $VERSION
           ==================
 
           ### Windows
