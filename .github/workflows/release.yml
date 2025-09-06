@@ -200,8 +200,8 @@ jobs:
           releaseName: 'TestCase ${{ env.VERSION }}'
           releaseBody: 'See the assets to download this version and install.'
           prerelease: false
-          releaseDraft: true
-          includeUpdaterJson: false
+          releaseDraft: false
+          includeUpdaterJson: true
           args: --target ${{ matrix.target }}
 
       # 提取构建产物信息
