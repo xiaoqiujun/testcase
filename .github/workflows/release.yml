@@ -194,9 +194,6 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }} # 发布标签名
-          releaseName: "${{ env.APP_NAME }} ${{ github.ref_name }}" # 发布名称
-          releaseBody: ${{ env.RELEASE_NOTES }} # 发布说明
-          releaseDraft: true
           prerelease: false
           args: --target ${{ matrix.target }}
           includeUpdaterJson: true
@@ -204,29 +201,51 @@ jobs:
 
       # 保存构建产物信息
       - name: Save build artifacts info
+        id: artifacts_info
         run: |
-          # 提取构建产物信息
-          echo 'ARTIFACT_INFO<<EOF' >> $GITHUB_ENV
-          echo '${{ steps.tauri_build.outputs.artifactInfo }}' >> $GITHUB_ENV
-          echo 'EOF' >> $GITHUB_ENV
-          
-          # 创建平台特定的JSON片段
-          echo 'PLATFORM_JSON<<EOF' > platform.json.tmp
-          echo '  "${{ matrix.platform_key }}": {' >> platform.json.tmp
-          echo '    "url": "${{ fromJSON(steps.tauri_build.outputs.artifactInfo).url }}",' >> platform.json.tmp
-          echo '    "signature": "${{ fromJSON(steps.tauri_build.outputs.artifactInfo).signature }}"' >> platform.json.tmp
-          echo '  }' >> platform.json.tmp
-          echo 'EOF' >> platform.json.tmp
-          
-          # 保存到文件以便后续步骤使用
-          cat platform.json.tmp > platform_${{ matrix.platform_key }}.json
-      
+          # 解析 tauri_build 输出的 artifactInfo（包含 URL、签名等）
+          ARTIFACT_INFO='${{ steps.tauri_build.outputs.artifactInfo }}'
+          echo "Artifact Info: $ARTIFACT_INFO"
+
+          # 提取关键信息（使用 jq 解析 JSON，需先安装 jq）
+          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+            # Windows 安装 jq
+            choco install jq -y
+            JQ_PATH="C:\ProgramData\chocolatey\bin\jq.exe"
+          else
+            # macOS/Linux 已预装 jq
+            JQ_PATH="jq"
+          fi
+
+          # 提取 URL、签名、文件名
+          DOWNLOAD_URL=$($JQ_PATH -r '.url' <<< "$ARTIFACT_INFO")
+          SIGNATURE=$($JQ_PATH -r '.signature' <<< "$ARTIFACT_INFO")
+          FILENAME=$($JQ_PATH -r '.name' <<< "$ARTIFACT_INFO")
+
+          # 去除版本前缀 v（如 v1.0.0 → 1.0.0）
+          CLEAN_VERSION=${{ github.ref_name }}
+          CLEAN_VERSION=${CLEAN_VERSION#v}
+
+          # 生成当前平台的 JSON 片段（用于后续汇总）
+          echo "{
+            \"${{ matrix.platform_key }}\": {
+              \"url\": \"$DOWNLOAD_URL\",
+              \"signature\": \"$SIGNATURE\",
+              \"version\": \"$CLEAN_VERSION\",
+              \"filename\": \"$FILENAME\"
+            }
+          }" > platform_${{ matrix.platform_key }}_${{ matrix.package_type }}.json
+
+          # 输出路径供后续步骤使用
+          echo "PLATFORM_JSON_PATH=platform_${{ matrix.platform_key }}_${{ matrix.package_type }}.json" >> $GITHUB_OUTPUT
+
       # 上传平台特定的JSON文件
       - name: Upload platform JSON
-        uses: actions/upload-artifact@v4
+         uses: actions/upload-artifact@v4
         with:
-          name: platform-jsons
-          path: platform_${{ matrix.platform_key }}.json
+          name: platform-json-fragments
+          path: ${{ steps.artifacts_info.outputs.PLATFORM_JSON_PATH }}
+          retention-days: 1  # 仅保留1天，避免占用空间
 
   # 3. 生成并上传latest.json
   generate-latest-json:
