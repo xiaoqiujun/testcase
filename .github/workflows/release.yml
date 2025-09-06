@@ -239,14 +239,6 @@ jobs:
           # 输出路径供后续步骤使用
           echo "PLATFORM_JSON_PATH=platform_${{ matrix.platform_key }}_${{ matrix.package_type }}.json" >> $GITHUB_OUTPUT
 
-      # 上传平台特定的JSON文件
-      - name: Upload platform JSON
-         uses: actions/upload-artifact@v4
-        with:
-          name: platform-json-fragments
-          path: ${{ steps.artifacts_info.outputs.PLATFORM_JSON_PATH }}
-          retention-days: 1  # 仅保留1天，避免占用空间
-
   # 3. 生成并上传latest.json
   generate-latest-json:
     needs: [create-release, build]
