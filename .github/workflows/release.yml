@@ -31,9 +31,7 @@ jobs:
           cat > release.txt <<EOF
           Release $VERSION
           ==================
-
-          Download Links:
-
+          
           ### Windows
           - [x86_64]($DOWNLOAD_BASE_URL/$APP_NAME-$VERSION-x86_64.exe)
           - [ARM64]($DOWNLOAD_BASE_URL/$APP_NAME-$VERSION-arm64.exe)
