@@ -8,6 +8,7 @@ on:
 env:
   APP_NAME: "TestCase"
   APP_VERSION: ${{ github.ref_name }}
+  CLEAN_VERSION: ${{ replace(github.ref_name, 'v', '') }}
 
 jobs:
   # 1. 创建 Release
@@ -31,7 +32,7 @@ jobs:
           cat > release.txt <<EOF
           Release $VERSION
           ==================
-          
+
           ### Windows
           - [x86_64]($DOWNLOAD_BASE_URL/$APP_NAME-$VERSION-x86_64.exe)
           - [ARM64]($DOWNLOAD_BASE_URL/$APP_NAME-$VERSION-arm64.exe)
@@ -199,11 +200,10 @@ jobs:
       - name: Extract build info and generate JSON fragment
         id: extract_info
         run: |
-          # 解析构建产物信息
           ARTIFACT_INFO='${{ steps.tauri_build.outputs.artifactInfo }}'
           echo "Artifact Info: $ARTIFACT_INFO"
 
-          # 安装jq工具（跨平台处理）
+          # 安装jq
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
             choco install jq -y
             JQ_PATH="C:\ProgramData\chocolatey\bin\jq.exe"
@@ -211,11 +211,12 @@ jobs:
             JQ_PATH="jq"
           fi
 
-          # 提取关键信息（处理可能的空值）
+          # 提取信息
           DOWNLOAD_URL=$($JQ_PATH -r '.url // "unknown"' <<< "$ARTIFACT_INFO")
           SIGNATURE=$($JQ_PATH -r '.signature // "unknown"' <<< "$ARTIFACT_INFO")
           FILENAME=$($JQ_PATH -r '.name // "unknown"' <<< "$ARTIFACT_INFO")
-          CLEAN_VERSION=${{ github.ref_name#v }}
+          # 使用环境变量中的干净版本号
+          CLEAN_VERSION=${{ env.CLEAN_VERSION }}
 
           # 生成平台JSON片段
           echo "{
@@ -227,10 +228,9 @@ jobs:
             }
           }" > platform_${{ matrix.platform_key }}.json
 
-          # 输出JSON文件路径
           echo "PLATFORM_JSON_PATH=platform_${{ matrix.platform_key }}.json" >> $GITHUB_OUTPUT
 
-      # 上传平台JSON片段供后续汇总
+      # 上传平台JSON片段
       - name: Upload platform JSON fragment
         uses: actions/upload-artifact@v4
         with:
