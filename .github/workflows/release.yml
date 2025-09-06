@@ -197,47 +197,6 @@ jobs:
           prerelease: false
           args: --target ${{ matrix.target }}
           includeUpdaterJson: true
-          artifactName: "${{ github.ref_name }}-${{ matrix.filename_suffix }}"
-
-      # 保存构建产物信息
-      - name: Save build artifacts info
-        id: artifacts_info
-        run: |
-          # 解析 tauri_build 输出的 artifactInfo（包含 URL、签名等）
-          ARTIFACT_INFO='${{ steps.tauri_build.outputs.artifactInfo }}'
-          echo "Artifact Info: $ARTIFACT_INFO"
-
-          # 提取关键信息（使用 jq 解析 JSON，需先安装 jq）
-          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            # Windows 安装 jq
-            choco install jq -y
-            JQ_PATH="C:\ProgramData\chocolatey\bin\jq.exe"
-          else
-            # macOS/Linux 已预装 jq
-            JQ_PATH="jq"
-          fi
-
-          # 提取 URL、签名、文件名
-          DOWNLOAD_URL=$($JQ_PATH -r '.url' <<< "$ARTIFACT_INFO")
-          SIGNATURE=$($JQ_PATH -r '.signature' <<< "$ARTIFACT_INFO")
-          FILENAME=$($JQ_PATH -r '.name' <<< "$ARTIFACT_INFO")
-
-          # 去除版本前缀 v（如 v1.0.0 → 1.0.0）
-          CLEAN_VERSION=${{ github.ref_name }}
-          CLEAN_VERSION=${CLEAN_VERSION#v}
-
-          # 生成当前平台的 JSON 片段（用于后续汇总）
-          echo "{
-            \"${{ matrix.platform_key }}\": {
-              \"url\": \"$DOWNLOAD_URL\",
-              \"signature\": \"$SIGNATURE\",
-              \"version\": \"$CLEAN_VERSION\",
-              \"filename\": \"$FILENAME\"
-            }
-          }" > platform_${{ matrix.platform_key }}_${{ matrix.package_type }}.json
-
-          # 输出路径供后续步骤使用
-          echo "PLATFORM_JSON_PATH=platform_${{ matrix.platform_key }}_${{ matrix.package_type }}.json" >> $GITHUB_OUTPUT
 
   # 3. 生成并上传latest.json
   generate-latest-json:
