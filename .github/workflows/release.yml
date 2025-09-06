@@ -5,40 +5,19 @@ on:
     tags:
       - 'v*.*.*'
 
+env:
+  APP_NAME: "Test Case"
+  APP_VERSION: ${{ github.ref_name }}
+
 jobs:
-  # 1. 准备配置和创建Release
-  prepare-and-release:
+  # 1. 创建 Release
+  create-release:
     runs-on: ubuntu-latest
     outputs:
       upload_url: ${{ steps.create.outputs.upload_url }}
       release_id: ${{ steps.create.outputs.id }}
-      app_name: ${{ steps.extract-config.outputs.app_name }}
-      app_version: ${{ steps.extract-config.outputs.app_version }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Extract and sync versions
-        id: extract-config
-        run: |
-          # 安装jq用于处理JSON文件
-          sudo apt-get install -y jq
-          
-          # 从package.json获取版本号
-          PACKAGE_VERSION=$(jq -r '.version' package.json)
-          echo "从package.json获取版本: $PACKAGE_VERSION"
-          
-          # 从tauri.conf.json获取应用名称
-          APP_NAME=$(jq -r '.package.productName' src-tauri/tauri.conf.json)
-          echo "从tauri.conf.json获取应用名称: $APP_NAME"
-          
-          # 确保tauri.conf.json的version与package.json一致
-          echo "更新tauri.conf.json版本为 $PACKAGE_VERSION"
-          jq --arg version "$PACKAGE_VERSION" '.package.version = $version' src-tauri/tauri.conf.json > temp.json
-          mv temp.json src-tauri/tauri.conf.json
-          
-          # 输出变量供后续步骤使用
-          echo "app_name=$APP_NAME" >> $GITHUB_OUTPUT
-          echo "app_version=$PACKAGE_VERSION" >> $GITHUB_OUTPUT
 
       - name: Generate release notes and release.txt
         id: release_notes
@@ -46,7 +25,6 @@ jobs:
           # 提取版本信息
           VERSION=${{ github.ref_name }}
           CLEAN_VERSION=${VERSION#v}
-          APP_NAME="${{ steps.extract-config.outputs.app_name }}"
           DOWNLOAD_BASE_URL="https://github.com/${{ github.repository }}/releases/download/$VERSION"
           
           # 生成release.txt
@@ -57,16 +35,16 @@ jobs:
           Download Links:
 
           ### Windows
-          - [x86_64]($DOWNLOAD_BASE_URL/$APP_NAME_$CLEAN_VERSION_x86_64.msi)
-          - [ARM64]($DOWNLOAD_BASE_URL/$APP_NAME_$CLEAN_VERSION_arm64.msi)
+          - [x86_64]($DOWNLOAD_BASE_URL/$APP_NAME_$VERSION_x86_64.exe)
+          - [ARM64]($DOWNLOAD_BASE_URL/$APP_NAME-$VERSION-arm64.exe)
           
           ### macOS
-          - [x86_64 (Intel)]($DOWNLOAD_BASE_URL/$APP_NAME_$CLEAN_VERSION_x86_64.dmg)
-          - [aarch64 (Apple Silicon)]($DOWNLOAD_BASE_URL/$APP_NAME_$CLEAN_VERSION_aarch64.dmg)
+          - [x86_64 (Intel)]($DOWNLOAD_BASE_URL/$APP_NAME-$VERSION-x86_64.dmg)
+          - [aarch64 (Apple Silicon)]($DOWNLOAD_BASE_URL/$APP_NAME-$VERSION-aarch64.dmg)
           
           ### Linux
-          - [x86_64]($DOWNLOAD_BASE_URL/$APP_NAME_$CLEAN_VERSION_amd64.AppImage)
-          - [x86_64 Debian]($DOWNLOAD_BASE_URL/$APP_NAME_$CLEAN_VERSION_amd64.deb)
+          - [x86_64]($DOWNLOAD_BASE_URL/$APP_NAME-$VERSION-x86_64.deb)
+          - [ARM64]($DOWNLOAD_BASE_URL/$APP_NAME-$VERSION-arm64.deb)
           EOF
           
           # 生成发布说明（包含变更日志）
@@ -80,7 +58,7 @@ jobs:
           echo "" >> $GITHUB_ENV
           echo "## Download Links" >> $GITHUB_ENV
           echo "" >> $GITHUB_ENV
-          cat release.txt | grep -v "==================" >> $GITHUB_ENV
+          cat release.txt | grep -v "==================" >> $GITHUB_ENV  # 避免重复标题线
           echo "EOF" >> $GITHUB_ENV
 
       - name: Create GitHub Release
@@ -88,7 +66,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: "Release ${{ github.ref_name }} - ${{ steps.extract-config.outputs.app_name }}"
+          name: "Release ${{ github.ref_name }}"
           body: ${{ env.RELEASE_NOTES }}
           draft: false
           prerelease: false
@@ -100,84 +78,80 @@ jobs:
 
   # 2. 多平台构建
   build:
-    needs: prepare-and-release
+    needs: create-release
     permissions:
       contents: write
     strategy:
       fail-fast: false
       matrix:
         include:
+          # Windows 平台
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             platform_key: windows-x86_64
-            asset_suffix: "x86_64.msi"
+            filename_suffix: x86_64.exe
+            package_type: exe
           - os: windows-latest
             target: aarch64-pc-windows-msvc
             platform_key: windows-aarch64
-            asset_suffix: "arm64.msi"
+            filename_suffix: arm64.exe
+            package_type: exe
+
+          # macOS 平台
           - os: macos-latest
             target: aarch64-apple-darwin
             platform_key: darwin-aarch64
-            asset_suffix: "aarch64.dmg"
+            filename_suffix: aarch64.dmg
+            package_type: dmg
           - os: macos-latest
             target: x86_64-apple-darwin
             platform_key: darwin-x86_64
-            asset_suffix: "x86_64.dmg"
+            filename_suffix: x86_64.dmg
+            package_type: dmg
+
+          # Linux DEB 包
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             platform_key: linux-x86_64
-            asset_suffix: "amd64.AppImage"
+            filename_suffix: x86_64.deb
+            package_type: deb
+
+          # Linux RPM 包
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
-            platform_key: linux-x86_64-deb
-            asset_suffix: "amd64.deb"
+            platform_key: linux-x86_64
+            filename_suffix: x86_64.rpm
+            package_type: rpm
 
     runs-on: ${{ matrix.os }}
     steps:
+      # 检出代码
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Extract version and app name
-        run: |
-          echo "APP_NAME=${{ needs.prepare-and-release.outputs.app_name }}" >> $GITHUB_ENV
-          echo "CLEAN_VERSION=${{ github.ref_name#v }}" >> $GITHUB_ENV
-          echo "FULL_VERSION=${{ github.ref_name }}" >> $GITHUB_ENV
-
-      - name: Sync tauri.conf.json version with package.json
-        run: |
-          # 安装jq用于处理JSON文件
-          if [ "${{ matrix.os }}" = "ubuntu-22.04" ]; then
-            sudo apt-get install -y jq
-          elif [ "${{ matrix.os }}" = "macos-latest" ]; then
-            brew install jq
-          elif [ "${{ matrix.os }}" = "windows-latest" ]; then
-            choco install jq -y
-          fi
-          
-          # 从package.json获取版本号并更新到tauri.conf.json
-          PACKAGE_VERSION=$(jq -r '.version' package.json)
-          echo "同步tauri.conf.json版本为 $PACKAGE_VERSION"
-          jq --arg version "$PACKAGE_VERSION" '.package.version = $version' src-tauri/tauri.conf.json > temp.json
-          mv temp.json src-tauri/tauri.conf.json
-
+      # 安装 Rust 稳定版本
       - name: Install Rust Stable
         uses: dtolnay/rust-toolchain@stable
 
+      # 添加 Rust 目标架构
       - name: Add Rust Target
         run: rustup target add ${{ matrix.target }}
 
+      # 配置 Rust 缓存
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
           save-if: false
-          
+      
+      # 安装依赖（仅在 Ubuntu 上）
       - name: Install dependencies (ubuntu only)
         if: matrix.os == 'ubuntu-22.04'
         run: |
           sudo apt-get update
           sudo apt-get install -y libxslt1.1 libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
           
+      # 安装 x86 OpenSSL (macOS only)
       - name: Install x86 OpenSSL (macOS only)
         if: matrix.target == 'x86_64-apple-darwin'
         run: |
@@ -187,16 +161,19 @@ jobs:
           echo "OPENSSL_LIB_DIR=$(brew --prefix openssl@3)/lib" >> $GITHUB_ENV
           echo "PKG_CONFIG_PATH=$(brew --prefix openssl@3)/lib/pkgconfig" >> $GITHUB_ENV
       
+      # 安装 Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
           
+      # 安装 pnpm
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 10
           
+      # 安装依赖
       - name: Install dependencies
         run: |
           pnpm install --frozen-lockfile
@@ -204,24 +181,28 @@ jobs:
         env:
           NODE_OPTIONS: "--max_old_space_size=4096"
 
+      # 构建 Tauri 应用
       - name: Tauri build
         id: tauri_build
         uses: tauri-apps/tauri-action@v0
         env:
           NODE_OPTIONS: "--max_old_space_size=4096"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 配置 Tauri 签名密钥
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          # 配置 Tauri 签名密钥密码
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "${{ env.APP_NAME }} ${{ github.ref_name }}"
-          releaseBody: ${{ needs.prepare-and-release.outputs.release_body }}
+          tagName: ${{ github.ref_name }} # 发布标签名
+          releaseName: "${{ env.APP_NAME }} ${{ github.ref_name }}" # 发布名称
+          releaseBody: ${{ env.RELEASE_NOTES }} # 发布说明
           releaseDraft: true
           prerelease: false
           args: --target ${{ matrix.target }}
           includeUpdaterJson: true
-          assetNamePattern: "${{ env.APP_NAME }}_${{ env.CLEAN_VERSION }}_${{ matrix.asset_suffix }}"
+          artifactName: "${{ github.ref_name }}-${{ matrix.filename_suffix }}"
 
+      # 保存构建产物信息
       - name: Save build artifacts info
         run: |
           # 提取构建产物信息
@@ -239,7 +220,8 @@ jobs:
           
           # 保存到文件以便后续步骤使用
           cat platform.json.tmp > platform_${{ matrix.platform_key }}.json
-          
+      
+      # 上传平台特定的JSON文件
       - name: Upload platform JSON
         uses: actions/upload-artifact@v4
         with:
@@ -248,7 +230,7 @@ jobs:
 
   # 3. 生成并上传latest.json
   generate-latest-json:
-    needs: [prepare-and-release, build]
+    needs: [create-release, build]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -262,12 +244,11 @@ jobs:
           
       - name: Generate latest.json
         run: |
-          # 提取版本号和应用名称
+          # 提取版本号（去掉v前缀）
           VERSION=$(echo ${{ github.ref_name }} | sed 's/^v//')
-          APP_NAME="${{ needs.prepare-and-release.outputs.app_name }}"
           
           # 获取发布说明
-          NOTES=$(cat << EOF
+          NOTES=$(cat << 'EOF'
           本次更新包含多项改进和bug修复，提升了应用的稳定性和用户体验。
           详细更新内容请查看完整的发布说明。
           EOF

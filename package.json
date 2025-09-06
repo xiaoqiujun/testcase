@@ -13,7 +13,7 @@
     "tauri:dev": "source ~/.cargo/env && npm run tauri dev",
     "tauri:build": "npm run tauri build",
     "tauri:check": "npm run typecheck && npm run tauri build --check",
-    "release:prepare": "node scripts/prepare-release.js"
+    "release": "node scripts/prepare-release.js"
   },
   "dependencies": {
     "@radix-ui/react-tooltip": "^1.2.8",

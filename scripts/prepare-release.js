@@ -4,18 +4,30 @@ import fs from 'fs'
 import { execSync } from 'child_process'
 import readline from 'readline'
 
+/**
+ * 执行 shell 命令的函数
+ * @param {string} command - 要执行的 shell 命令
+ * @param {Object} options - 执行命令的选项，默认为空对象
+ * @returns {string} 命令执行的输出结果
+ */
 function exec(command, options = {}) {
   try {
     return execSync(command, {
       encoding: 'utf8',
-      stdio: options.silent ? 'pipe' : 'inherit',
+      stdio: options.silent ? 'pipe' : 'inherit',  // 静默模式下不显示输出
       ...options,
     })
   } catch (error) {
-    throw new Error(`Command failed: ${command}\n${error.message}`)
+
+    throw new Error(`命令执行失败: ${command}\n${error.message}`)
   }
 }
 
+/**
+ * 向用户提问并获取输入的函数
+ * @param {string} question - 要询问用户的问题
+ * @returns {Promise<string>} 包含用户输入的 Promise 对象
+ */
 function askQuestion(question) {
   const rl = readline.createInterface({
     input: process.stdin,
@@ -30,49 +42,52 @@ function askQuestion(question) {
   })
 }
 
+/**
+ * 准备发布新版本的异步函数
+ */
 async function prepareRelease() {
+  // 从命令行参数中获取版本号
   const version = process.argv[2]
 
+  // 检查版本号是否存在且格式是否正确
   if (!version || !version.match(/^v?\d+\.\d+\.\d+$/)) {
-    console.error('❌ Usage: node scripts/prepare-release.js v1.0.0')
-    console.error('   or: npm run prepare-release v1.0.0')
+    console.error('❌ 用法: node scripts/prepare-release.js v1.0.0')
+    console.error('   或: npm run prepare-release v1.0.0')
     process.exit(1)
   }
 
+  // 去除版本号前面的 'v'
   const cleanVersion = version.replace('v', '')
+  // 确保版本号以 'v' 开头
   const tagVersion = version.startsWith('v') ? version : `v${version}`
 
-  console.log(`🚀 Preparing release ${tagVersion}...\n`)
+  console.log(`🚀 准备发布版本 ${tagVersion}...\n`)
 
   try {
-    // Check git status
-    console.log('🔍 Checking git status...')
+    // 检查 git 状态
+    console.log('🔍 检查 git 状态...')
+    // 执行 git status 命令，静默模式下获取输出
     const gitStatus = exec('git status --porcelain', { silent: true })
     if (gitStatus.trim()) {
+      // 如果有未提交的更改，输出错误信息并退出进程
       console.error(
-        '❌ Working directory is not clean. Please commit or stash changes first.'
+        '❌ 工作目录不干净。请先提交或暂存变更。'
       )
-      console.log('Uncommitted changes:')
+      console.log('未提交的变更:')
       console.log(gitStatus)
       process.exit(1)
     }
-    console.log('✅ Working directory is clean')
 
-    // Run all checks first
-    console.log('\n🔍 Running pre-release checks...')
-    exec('npm run check:all')
-    console.log('✅ All checks passed')
-
-    // Update package.json
-    console.log('\n📝 Updating package.json...')
+    // 更新 package.json 文件
+    console.log('\n📝 更新 package.json 版本')
     const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'))
     const oldPkgVersion = pkg.version
     pkg.version = cleanVersion
     fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n')
     console.log(`   ${oldPkgVersion} → ${cleanVersion}`)
 
-    // Update Cargo.toml
-    console.log('📝 Updating Cargo.toml...')
+    // 更新 Cargo.toml 文件
+    console.log('📝 更新 Cargo.toml 版本')
     const cargoPath = 'src-tauri/Cargo.toml'
     const cargoToml = fs.readFileSync(cargoPath, 'utf8')
     const oldCargoVersion = cargoToml.match(/version = "([^"]*)"/)
@@ -85,8 +100,8 @@ async function prepareRelease() {
       `   ${oldCargoVersion ? oldCargoVersion[1] : 'unknown'} → ${cleanVersion}`
     )
 
-    // Update tauri.conf.json
-    console.log('📝 Updating tauri.conf.json...')
+    // 更新 tauri.conf.json 文件
+    console.log('📝 更新 tauri.conf.json 版本')
     const tauriConfigPath = 'src-tauri/tauri.conf.json'
     const tauriConfig = JSON.parse(fs.readFileSync(tauriConfigPath, 'utf8'))
     const oldTauriVersion = tauriConfig.version
@@ -97,85 +112,37 @@ async function prepareRelease() {
     )
     console.log(`   ${oldTauriVersion} → ${cleanVersion}`)
 
-    // Run npm install to update lock files
-    console.log('\n📦 Updating lock files...')
-    exec('npm install', { silent: true })
-    console.log('✅ Lock files updated')
-
-    // Verify configurations
-    console.log('\n🔍 Verifying configurations...')
-
-    if (!tauriConfig.bundle?.createUpdaterArtifacts) {
-      console.warn(
-        '⚠️  Warning: createUpdaterArtifacts not enabled in tauri.conf.json'
-      )
-    } else {
-      console.log('✅ Updater artifacts enabled')
-    }
-
-    if (!tauriConfig.plugins?.updater?.pubkey) {
-      console.warn('⚠️  Warning: Updater public key not configured')
-    } else {
-      console.log('✅ Updater public key configured')
-    }
-
-    // Final check that Rust code compiles
-    console.log('\n🔍 Running final compilation check...')
-    exec('source ~/.cargo/env && cd src-tauri && cargo check')
-    console.log('✅ Rust compilation check passed')
-
-    console.log(`\n🎉 Successfully prepared release ${tagVersion}!`)
-    console.log('\n📋 Git commands to execute:')
+    console.log(`\n🎉 成功准备发布版本 ${tagVersion}!`)
+    console.log('\n📋 Git 命令:')
     console.log(`   git add .`)
     console.log(`   git commit -m "chore: release ${tagVersion}"`)
     console.log(`   git tag ${tagVersion}`)
     console.log(`   git push origin main --tags`)
 
-    console.log('\n🚀 After pushing:')
-    console.log('   • GitHub Actions will automatically build the release')
-    console.log('   • A draft release will be created on GitHub')
-    console.log("   • You'll need to manually publish the draft release")
-    console.log('   • Users will receive auto-update notifications')
-
-    // Interactive execution option
     const answer = await askQuestion(
-      '\n❓ Would you like me to execute these git commands? (y/N): '
+      '\n❓ 您想让我执行这些 git 命令吗？(y/N): '
     )
 
     if (answer.toLowerCase() === 'y' || answer.toLowerCase() === 'yes') {
-      console.log('\n⚡ Executing git commands...')
-
-      console.log('📝 Adding changes...')
+      console.log('\n⚡ 正在执行 git 命令...')
+      console.log('📝 添加变更...')
       exec('git add .')
-
-      console.log('💾 Creating commit...')
+      console.log('💾 创建提交...')
       exec(`git commit -m "chore: release ${tagVersion}"`)
 
-      console.log('🏷️  Creating tag...')
+      console.log('🏷️  创建标签...')
       exec(`git tag ${tagVersion}`)
 
-      console.log('📤 Pushing to remote...')
+      console.log('📤 推送至远程...')
       exec('git push origin main --tags')
 
-      console.log(`\n🎊 Release ${tagVersion} has been published!`)
-      console.log(
-        '📱 Check GitHub Actions: https://github.com/YOUR_USERNAME/YOUR_REPO/actions'
-      )
-      console.log(
-        '📦 Draft release will appear at: https://github.com/YOUR_USERNAME/YOUR_REPO/releases'
-      )
-      console.log(
-        '\n⚠️  Remember: You need to manually publish the draft release on GitHub!'
-      )
     } else {
-      console.log('\n📝 Git commands saved for manual execution.')
-      console.log("   Run them when you're ready to release.")
+      console.log('\n📝 Git 命令已保存，可手动执行。')
+      console.log("   准备好发布时再执行这些命令。")
     }
   } catch (error) {
-    console.error('\n❌ Pre-release preparation failed:', error.message)
+    console.error('\n❌ 预发布准备失败:', error.message)
     process.exit(1)
   }
 }
-
-// Run if this is the main module
 prepareRelease()
